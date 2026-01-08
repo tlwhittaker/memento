@@ -75,15 +75,24 @@ func (m *Memo) FormattedDate() string {
 	return m.DisplayTime.Format("Jan 02, 2006 3:04 PM")
 }
 
+func (m *Memo) FormattedDateIn(tz *time.Location) string {
+	return m.DisplayTime.In(tz).Format("Jan 02, 2006 3:04 PM")
+}
+
 func (m *Memo) ShortDate() string {
-	now := time.Now()
-	if m.DisplayTime.Year() == now.Year() {
-		if m.DisplayTime.YearDay() == now.YearDay() {
-			return m.DisplayTime.Format("3:04 PM")
+	return m.ShortDateIn(time.Local)
+}
+
+func (m *Memo) ShortDateIn(tz *time.Location) string {
+	localTime := m.DisplayTime.In(tz)
+	now := time.Now().In(tz)
+	if localTime.Year() == now.Year() {
+		if localTime.YearDay() == now.YearDay() {
+			return localTime.Format("3:04 PM")
 		}
-		return m.DisplayTime.Format("Jan 02")
+		return localTime.Format("Jan 02")
 	}
-	return m.DisplayTime.Format("Jan 02, 2006")
+	return localTime.Format("Jan 02, 2006")
 }
 
 func FromAPI(m api.Memo) Memo {

@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"time"
+
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/sahilm/fuzzy"
 	"github.com/tlwhittaker/memento/internal/models"
@@ -173,6 +175,8 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleCreateKeys(msg)
 	case ScreenEdit:
 		return m.handleEditKeys(msg)
+	case ScreenCalendar:
+		return m.handleCalendarKeys(msg)
 	}
 
 	return m, nil
@@ -187,20 +191,61 @@ func (m Model) handleListKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Get the list of memos to operate on (filtered or all)
 	memoList := m.getDisplayMemos()
 
+	// Check if we're in split pane mode and if inline calendar is visible
+	inSplitPane := m.width >= SplitPaneMinWidth
+	showInlineCal := m.shouldShowInlineCalendar()
+
+	// Handle inline calendar navigation when focused
+	if showInlineCal && m.inlineCalendarFocus && !m.splitFocusRight {
+		return m.handleInlineCalendarKeys(msg)
+	}
+
 	switch msg.String() {
 	case "q":
 		return m, tea.Quit
 
+	case "left", "h":
+		// In split pane mode, switch focus to left pane
+		if inSplitPane && m.splitFocusRight {
+			m.splitFocusRight = false
+			return m, nil
+		}
+
+	case "right", "l":
+		// In split pane mode, switch focus to right pane
+		if inSplitPane && !m.splitFocusRight && len(memoList) > 0 {
+			m.splitFocusRight = true
+			m.inlineCalendarFocus = false
+			m.previewScroll = 0
+			return m, nil
+		}
+
 	case "up", "k":
-		if m.listCursor > 0 {
-			m.listCursor--
-			m.adjustListScroll(m.height - 9)
+		if inSplitPane && m.splitFocusRight {
+			// Scroll preview pane up
+			if m.previewScroll > 0 {
+				m.previewScroll--
+			}
+		} else {
+			// Move list cursor up
+			if m.listCursor > 0 {
+				m.listCursor--
+				m.adjustListScroll(m.height - 9)
+				m.previewScroll = 0 // Reset preview scroll when changing selection
+			}
 		}
 
 	case "down", "j":
-		if m.listCursor < len(memoList)-1 {
-			m.listCursor++
-			m.adjustListScroll(m.height - 9)
+		if inSplitPane && m.splitFocusRight {
+			// Scroll preview pane down
+			m.previewScroll++
+		} else {
+			// Move list cursor down
+			if m.listCursor < len(memoList)-1 {
+				m.listCursor++
+				m.adjustListScroll(m.height - 9)
+				m.previewScroll = 0 // Reset preview scroll when changing selection
+			}
 		}
 
 	case "enter":
@@ -281,9 +326,232 @@ func (m Model) handleListKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.loading = true
 			return m, m.cycleVisibility(memo.Name, memo.Visibility)
 		}
+
+	case "c":
+		// Toggle between list and calendar focus, or open full calendar
+		if showInlineCal {
+			m.inlineCalendarFocus = true
+		} else {
+			m.currentScreen = ScreenCalendar
+		}
 	}
 
 	return m, nil
+}
+
+func (m Model) handleInlineCalendarKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	daysInMonth := m.daysInCurrentMonth()
+	memoList := m.getDisplayMemos()
+
+	switch msg.String() {
+	case "q":
+		return m, tea.Quit
+
+	case "c", "esc":
+		// Switch back to memo list
+		m.inlineCalendarFocus = false
+
+	case "right", "l":
+		// Move to next day, or switch to preview pane at month end
+		m.calendarDay++
+		if m.calendarDay > daysInMonth {
+			m.calendarDay = 1
+			m.calendarMonth++
+			if m.calendarMonth > 12 {
+				m.calendarMonth = 1
+				m.calendarYear++
+			}
+		}
+
+	case "left", "h":
+		// Move to previous day
+		m.calendarDay--
+		if m.calendarDay < 1 {
+			m.calendarMonth--
+			if m.calendarMonth < 1 {
+				m.calendarMonth = 12
+				m.calendarYear--
+			}
+			m.calendarDay = m.daysInCurrentMonth()
+		}
+
+	case "down", "j":
+		// Move down one week
+		m.calendarDay += 7
+		if m.calendarDay > daysInMonth {
+			m.calendarDay -= daysInMonth
+			m.calendarMonth++
+			if m.calendarMonth > 12 {
+				m.calendarMonth = 1
+				m.calendarYear++
+			}
+		}
+
+	case "up", "k":
+		// Move up one week
+		m.calendarDay -= 7
+		if m.calendarDay < 1 {
+			m.calendarMonth--
+			if m.calendarMonth < 1 {
+				m.calendarMonth = 12
+				m.calendarYear--
+			}
+			m.calendarDay += m.daysInCurrentMonth()
+		}
+
+	case "H":
+		// Previous month
+		m.calendarMonth--
+		if m.calendarMonth < 1 {
+			m.calendarMonth = 12
+			m.calendarYear--
+		}
+		maxDay := m.daysInCurrentMonth()
+		if m.calendarDay > maxDay {
+			m.calendarDay = maxDay
+		}
+
+	case "L":
+		// Next month
+		m.calendarMonth++
+		if m.calendarMonth > 12 {
+			m.calendarMonth = 1
+			m.calendarYear++
+		}
+		maxDay := m.daysInCurrentMonth()
+		if m.calendarDay > maxDay {
+			m.calendarDay = maxDay
+		}
+
+	case "enter":
+		// View memos for selected day - jump to first memo on that day
+		dayMemos := m.getMemosForDate(m.calendarYear, m.calendarMonth, m.calendarDay)
+		if len(dayMemos) > 0 {
+			// Find the memo in the main list and set cursor
+			for i, memo := range memoList {
+				if memo.Name == dayMemos[0].Name {
+					m.listCursor = i
+					m.adjustListScroll(m.height - 9)
+					break
+				}
+			}
+			m.inlineCalendarFocus = false
+		}
+
+	case "tab":
+		// Switch to preview pane
+		if len(memoList) > 0 {
+			m.splitFocusRight = true
+			m.inlineCalendarFocus = false
+			m.previewScroll = 0
+		}
+	}
+
+	return m, nil
+}
+
+func (m Model) handleCalendarKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	daysInMonth := m.daysInCurrentMonth()
+
+	switch msg.String() {
+	case "q", "esc":
+		m.currentScreen = ScreenList
+
+	case "h", "left":
+		m.calendarDay--
+		if m.calendarDay < 1 {
+			m.calendarMonth--
+			if m.calendarMonth < 1 {
+				m.calendarMonth = 12
+				m.calendarYear--
+			}
+			m.calendarDay = m.daysInCurrentMonth()
+		}
+
+	case "l", "right":
+		m.calendarDay++
+		if m.calendarDay > daysInMonth {
+			m.calendarDay = 1
+			m.calendarMonth++
+			if m.calendarMonth > 12 {
+				m.calendarMonth = 1
+				m.calendarYear++
+			}
+		}
+
+	case "k", "up":
+		m.calendarDay -= 7
+		if m.calendarDay < 1 {
+			m.calendarMonth--
+			if m.calendarMonth < 1 {
+				m.calendarMonth = 12
+				m.calendarYear--
+			}
+			m.calendarDay += m.daysInCurrentMonth()
+		}
+
+	case "j", "down":
+		m.calendarDay += 7
+		if m.calendarDay > daysInMonth {
+			m.calendarDay -= daysInMonth
+			m.calendarMonth++
+			if m.calendarMonth > 12 {
+				m.calendarMonth = 1
+				m.calendarYear++
+			}
+		}
+
+	case "H":
+		m.calendarMonth--
+		if m.calendarMonth < 1 {
+			m.calendarMonth = 12
+			m.calendarYear--
+		}
+		maxDay := m.daysInCurrentMonth()
+		if m.calendarDay > maxDay {
+			m.calendarDay = maxDay
+		}
+
+	case "L":
+		m.calendarMonth++
+		if m.calendarMonth > 12 {
+			m.calendarMonth = 1
+			m.calendarYear++
+		}
+		maxDay := m.daysInCurrentMonth()
+		if m.calendarDay > maxDay {
+			m.calendarDay = maxDay
+		}
+
+	case "enter":
+		dayMemos := m.getMemosForDate(m.calendarYear, m.calendarMonth, m.calendarDay)
+		if len(dayMemos) > 0 {
+			m.selectedMemo = &dayMemos[0]
+			m.currentScreen = ScreenDetail
+			m.detailScroll = 0
+		}
+
+	case "n":
+		m.currentScreen = ScreenCreate
+		m.createContent = ""
+		m.createCursor = 0
+		if m.settings.IsVimMode() {
+			m.editorMode = ModeNormal
+		}
+		m.createHistory = NewEditHistory(100)
+		m.pendingAction = 0
+		m.visualStart = 0
+	}
+
+	return m, nil
+}
+
+func (m Model) daysInCurrentMonth() int {
+	return m.daysInMonth(m.calendarYear, m.calendarMonth)
+}
+
+func (m Model) daysInMonth(year, month int) int {
+	return time.Date(year, time.Month(month)+1, 0, 0, 0, 0, 0, time.Local).Day()
 }
 
 func (m Model) handleSearchKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {

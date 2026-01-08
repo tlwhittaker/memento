@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"time"
+
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/tlwhittaker/memento/internal/api"
@@ -16,6 +18,11 @@ const (
 	ScreenDetail
 	ScreenCreate
 	ScreenEdit
+	ScreenCalendar
+)
+
+const (
+	SplitPaneMinWidth = 120
 )
 
 // EditorMode represents the current editor mode (for vim bindings).
@@ -47,6 +54,16 @@ type Model struct {
 
 	// Detail screen state
 	detailScroll int
+
+	// Split pane state
+	splitFocusRight bool
+	previewScroll   int
+
+	// Calendar state
+	calendarYear       int
+	calendarMonth      int
+	calendarDay        int
+	inlineCalendarFocus bool // When true, focus is on inline calendar in left pane
 
 	// Create screen state
 	createContent string
@@ -100,6 +117,8 @@ func NewModel(client *api.Client, settings *config.Settings) Model {
 		editorMode = ModeNormal
 	}
 
+	now := time.Now()
+
 	return Model{
 		apiClient:     client,
 		settings:      settings,
@@ -109,6 +128,9 @@ func NewModel(client *api.Client, settings *config.Settings) Model {
 		createHistory: NewEditHistory(100),
 		editHistory:   NewEditHistory(100),
 		clipboard:     NewClipboard(),
+		calendarYear:  now.Year(),
+		calendarMonth: int(now.Month()),
+		calendarDay:   now.Day(),
 	}
 }
 

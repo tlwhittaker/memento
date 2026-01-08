@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -11,6 +12,7 @@ type Settings struct {
 	Theme       string            `yaml:"theme"`
 	Colors      ColorConfig       `yaml:"colors"`
 	DateFormat  string            `yaml:"date_format"`
+	Timezone    string            `yaml:"timezone"`
 	SortBy      string            `yaml:"sort_by"`
 	SortOrder   string            `yaml:"sort_order"`
 	Editor      EditorConfig      `yaml:"editor"`
@@ -174,7 +176,7 @@ func CreateDefaultConfig() error {
 		return err
 	}
 
-	defaultConfig := `# Memos TUI Configuration
+	defaultConfig := `# Memento Configuration
 
 theme: dracula
 
@@ -190,6 +192,9 @@ colors:
   selected: "#44475A"
 
 date_format: relative
+
+# Timezone for displaying dates (e.g., "America/New_York", "Europe/London", "Local")
+timezone: Local
 
 sort_by: display_time
 sort_order: desc
@@ -268,4 +273,15 @@ func (s *Settings) applyDefaults() {
 
 func (s *Settings) IsVimMode() bool {
 	return s.Editor.Mode == "vim"
+}
+
+func (s *Settings) GetTimezone() *time.Location {
+	if s.Timezone == "" || s.Timezone == "Local" {
+		return time.Local
+	}
+	loc, err := time.LoadLocation(s.Timezone)
+	if err != nil {
+		return time.Local
+	}
+	return loc
 }
