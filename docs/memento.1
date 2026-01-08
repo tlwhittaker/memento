@@ -1,0 +1,224 @@
+.TH MEMOS-TUI 1 "January 2026" "memento" "User Commands"
+.SH NAME
+memento \- Terminal user interface for Memos
+.SH SYNOPSIS
+.B memento
+[\fIOPTIONS\fR]
+.SH DESCRIPTION
+.B memento
+is a terminal user interface (TUI) for interacting with a Memos instance.
+It allows you to view, create, edit, and delete memos from the command line.
+.PP
+Memos is a lightweight, self-hosted memo hub. This TUI provides a vim-style
+interface for efficient memo management.
+.SH OPTIONS
+.TP
+.B \-\-debug
+Enable debug mode. Logs will be written to ~/.local/share/memento/debug.log
+.TP
+.B \-\-init-config
+Create a default configuration file at ~/.config/memento/config.yaml
+.SH KEYBINDINGS
+.SS List Screen
+.TP
+.B j / Down
+Move down in the list
+.TP
+.B k / Up
+Move up in the list
+.TP
+.B Enter
+View memo details
+.TP
+.B n
+Create new memo
+.TP
+.B e
+Edit selected memo
+.TP
+.B d
+Delete selected memo
+.TP
+.B p
+Toggle pin status
+.TP
+.B a
+Toggle archive status
+.TP
+.B v
+Cycle visibility (Private/Protected/Public)
+.TP
+.B /
+Search memos (fuzzy matching)
+.TP
+.B r
+Refresh memo list
+.TP
+.B q
+Quit
+.SS Detail Screen
+.TP
+.B j / Down
+Scroll down
+.TP
+.B k / Up
+Scroll up
+.TP
+.B e
+Edit memo
+.TP
+.B d
+Delete memo
+.TP
+.B p
+Toggle pin status
+.TP
+.B a
+Toggle archive status
+.TP
+.B v
+Cycle visibility
+.TP
+.B Esc / q
+Back to list
+.SS Editor (Vim Mode)
+.TP
+.B i
+Enter insert mode
+.TP
+.B Esc
+Return to normal mode
+.TP
+.B h/j/k/l
+Move cursor (left/down/up/right)
+.TP
+.B w
+Move to next word
+.TP
+.B b
+Move to previous word
+.TP
+.B 0
+Move to line start
+.TP
+.B $
+Move to line end
+.TP
+.B gg
+Move to document start
+.TP
+.B G
+Move to document end
+.TP
+.B dd
+Delete line
+.TP
+.B dw
+Delete word
+.TP
+.B yy
+Yank (copy) line
+.TP
+.B p
+Paste after cursor
+.TP
+.B P
+Paste before cursor
+.TP
+.B u
+Undo
+.TP
+.B Ctrl+r
+Redo
+.TP
+.B v
+Enter visual selection mode
+.TP
+.B Ctrl+s
+Save memo
+.SS Insert Mode
+.TP
+.B Ctrl+v
+Paste from system clipboard
+.TP
+.B Esc
+Exit insert mode
+.SS Dialogs
+.TP
+.B y
+Confirm action
+.TP
+.B n / Esc
+Cancel action
+.SH CONFIGURATION
+Configuration is read from \fB~/.config/memento/config.yaml\fR.
+.PP
+Use \fB--init-config\fR to create a default configuration file.
+.SS Configuration Options
+.TP
+.B theme
+Color theme: dracula, nord, solarized-dark, solarized-light, gruvbox, one-dark, tokyo-night, catppuccin-mocha, monokai, or custom
+.TP
+.B date_format
+Date display format: relative, short, long, or iso
+.TP
+.B sort_by
+Sort memos by: display_time, create_time, update_time, or pinned_first
+.TP
+.B sort_order
+Sort order: asc or desc
+.TP
+.B editor.mode
+Editor mode: vim or normal
+.TP
+.B debug
+Enable debug logging (true/false)
+.SH ENVIRONMENT
+.TP
+.B MEMOS_API_URL
+URL of your Memos instance API (e.g., https://memos.example.com/api/v1)
+.TP
+.B MEMOS_AUTH_TOKEN
+Access token for authentication
+.PP
+These can also be set in a \fB.env\fR file in the current directory.
+.SH FILES
+.TP
+.B ~/.config/memento/config.yaml
+User configuration file
+.TP
+.B ~/.local/share/memento/debug.log
+Debug log file (when debug mode is enabled)
+.TP
+.B .env
+Local environment file for API credentials
+.SH EXAMPLES
+.TP
+Start the TUI:
+.B memento
+.TP
+Start with debug logging:
+.B memento --debug
+.TP
+Create default config file:
+.B memento --init-config
+.SH MOUSE SUPPORT
+Mouse support is enabled by default:
+.TP
+\(bu Click to select a memo in the list
+.TP
+\(bu Click again on selected memo to open it
+.TP
+\(bu Scroll wheel to navigate lists
+.TP
+\(bu Right-click to go back from detail view
+.SH SEE ALSO
+.BR memos (1)
+.PP
+Project homepage: https://github.com/travis/memento
+.PP
+Memos: https://github.com/usememos/memos
+.SH AUTHORS
+Built with Claude Code and Bubbletea.
+.SH BUGS
+Report bugs at https://github.com/travis/memento/issues
