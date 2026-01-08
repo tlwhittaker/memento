@@ -49,22 +49,14 @@ func (m Model) renderListScreen() string {
 }
 
 func (m Model) renderSplitPaneList() string {
-	leftWidth := (m.width - 3) / 2
-	rightWidth := m.width - leftWidth - 3
+	leftWidth := (m.width - 4) / 2
+	rightWidth := m.width - leftWidth - 4
 	contentHeight := m.height - 4
 
 	leftPane := m.renderMemoListPane(leftWidth, contentHeight, !m.splitFocusRight)
 	rightPane := m.renderPreviewPane(rightWidth, contentHeight, m.splitFocusRight)
 
-	dividerColor := MutedColor
-	if m.splitFocusRight {
-		dividerColor = PrimaryColor
-	}
-	divider := lipgloss.NewStyle().
-		Foreground(dividerColor).
-		Render(strings.Repeat("│\n", contentHeight-1) + "│")
-
-	combined := lipgloss.JoinHorizontal(lipgloss.Top, leftPane, divider, rightPane)
+	combined := lipgloss.JoinHorizontal(lipgloss.Top, leftPane, rightPane)
 
 	displayMemos := m.getDisplayMemos()
 	showInlineCal := m.shouldShowInlineCalendar()
