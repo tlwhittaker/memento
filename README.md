@@ -1,6 +1,6 @@
 # Memento
 
-A terminal user interface (TUI) for [Memos](https://github.com/usememos/memos) - a lightweight, self-hosted memo hub.
+A (heavily still-in-progress) terminal user interface (TUI) for [Memos](https://github.com/usememos/memos) - a lightweight, self-hosted memo hub.
 
 Built with [Bubbletea](https://github.com/charmbracelet/bubbletea) and [Lipgloss](https://github.com/charmbracelet/lipgloss).
 
@@ -19,7 +19,6 @@ Built with [Bubbletea](https://github.com/charmbracelet/bubbletea) and [Lipgloss
 - **Undo/redo** in editor
 - **System clipboard** integration
 - **Mouse support** (click, scroll)
-- Debug mode for troubleshooting
 
 ## Installation
 
@@ -77,44 +76,12 @@ Create a config file with:
 memento --init-config
 ```
 
-This creates `~/.config/memento/config.yaml`:
-
-```yaml
-theme: dracula
-
-date_format: relative
-
-sort_by: display_time
-sort_order: desc
-
-editor:
-  mode: vim
-  tab_width: 4
-  word_wrap: true
-
-keybindings:
-  quit: "q"
-  new: "n"
-  edit: "e"
-  delete: "d"
-  search: "/"
-  refresh: "r"
-
-debug: false
-```
-
 ## Usage
 
 Run the TUI:
 
 ```bash
 memento
-```
-
-With debug logging:
-
-```bash
-memento --debug
 ```
 
 ## Keybindings
@@ -149,73 +116,6 @@ memento --debug
 | `v` | Cycle visibility |
 | `Esc` / `q` | Back to list |
 
-### Editor (Vim Mode)
-
-#### Normal Mode
-
-| Key | Action |
-|-----|--------|
-| `i` | Enter insert mode |
-| `a` | Append (insert after cursor) |
-| `o` | Open line below |
-| `O` | Open line above |
-| `v` | Visual selection mode |
-| `h/j/k/l` | Move cursor |
-| `w` | Next word |
-| `b` | Previous word |
-| `e` | End of word |
-| `0` | Line start |
-| `$` | Line end |
-| `gg` | Document start |
-| `G` | Document end |
-| `dd` | Delete line |
-| `dw` | Delete word |
-| `D` | Delete to end of line |
-| `yy` | Yank line |
-| `yw` | Yank word |
-| `p` | Paste after |
-| `P` | Paste before |
-| `u` | Undo |
-| `Ctrl+r` | Redo |
-| `x` | Delete character |
-| `Ctrl+s` | Save |
-| `Esc` | Cancel/exit |
-
-#### Insert Mode
-
-| Key | Action |
-|-----|--------|
-| `Esc` | Return to normal mode |
-| `Ctrl+v` | Paste from system clipboard |
-| Arrow keys | Navigate cursor |
-| `Enter` | New line |
-
-#### Visual Mode
-
-| Key | Action |
-|-----|--------|
-| Movement keys | Extend selection |
-| `d` / `x` | Delete selection |
-| `y` | Yank selection |
-| `c` | Change selection |
-| `Esc` | Exit visual mode |
-
-### Dialogs
-
-| Key | Action |
-|-----|--------|
-| `y` | Confirm (delete/discard) |
-| `n` / `Esc` | Cancel |
-
-### Mouse
-
-| Action | Effect |
-|--------|--------|
-| Click | Select memo in list |
-| Click again | Open selected memo |
-| Scroll wheel | Navigate lists |
-| Right-click | Go back (in detail view) |
-
 ## Themes
 
 Built-in themes:
@@ -246,75 +146,6 @@ colors:
   selected: "#44475A"
 ```
 
-## Project Structure
-
-```
-memento/
-├── cmd/memento/main.go      # Application entry point
-├── internal/
-│   ├── api/                 # Memos API client
-│   │   ├── client.go        # HTTP client
-│   │   ├── memos.go         # Memo endpoints (CRUD, pin, archive, visibility)
-│   │   └── types.go         # API types
-│   ├── config/              # Configuration
-│   │   ├── config.go        # Env var loading
-│   │   └── settings.go      # YAML config
-│   ├── debug/               # Debug logging
-│   │   └── debug.go
-│   ├── models/              # Domain models
-│   │   └── memo.go          # Memo model
-│   └── ui/                  # TUI components
-│       ├── model.go         # Root Bubbletea model
-│       ├── update.go        # Input handling
-│       ├── view.go          # Rendering
-│       ├── styles.go        # Lipgloss styles
-│       ├── themes.go        # Color themes
-│       ├── vim.go           # Vim movement functions
-│       ├── history.go       # Undo/redo system
-│       └── clipboard.go     # System clipboard
-├── docs/
-│   └── memento.1            # Man page
-├── .env.example             # Example configuration
-├── Makefile                 # Build automation
-└── README.md
-```
-
-## Make Targets
-
-```bash
-make build        # Build the binary
-make install      # Install to /usr/local
-make uninstall    # Remove installed files
-make run          # Build and run
-make run-debug    # Run with debug logging
-make init-config  # Create default config file
-make test         # Run tests
-make lint         # Run linters
-make dist         # Cross-compile for multiple platforms
-make help         # Show all targets
-```
-
 ## License
 
 MIT License
-
-Copyright (c) 2026 Travis Whittaker
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-
