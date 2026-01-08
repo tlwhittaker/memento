@@ -19,7 +19,6 @@ Built with [Bubbletea](https://github.com/charmbracelet/bubbletea) and [Lipgloss
 - **Undo/redo** in editor
 - **System clipboard** integration
 - **Mouse support** (click, scroll)
-- Debug mode for troubleshooting
 
 ## Installation
 
