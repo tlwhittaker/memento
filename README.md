@@ -1,5 +1,8 @@
 # Memento
 
+<img width="1552" height="793" alt="image" src="https://github.com/user-attachments/assets/810e1f04-2f9e-4a5f-a06a-af8029b92b54" />
+
+
 A (heavily still-in-progress) terminal user interface (TUI) for [Memos](https://github.com/usememos/memos) - a lightweight, self-hosted memo hub.
 
 Built with [Bubbletea](https://github.com/charmbracelet/bubbletea) and [Lipgloss](https://github.com/charmbracelet/lipgloss).
