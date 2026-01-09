@@ -122,14 +122,21 @@ var (
 	UnsavedDialogTitleStyle lipgloss.Style
 )
 
+// Template picker styles
+var (
+	TemplatePickerStyle      lipgloss.Style
+	TemplatePickerTitleStyle lipgloss.Style
+)
+
 // Cursor style
 var CursorStyle lipgloss.Style
 
 // Vim mode indicator styles
 var (
-	NormalModeStyle lipgloss.Style
-	InsertModeStyle lipgloss.Style
-	VisualModeStyle lipgloss.Style
+	NormalModeStyle  lipgloss.Style
+	InsertModeStyle  lipgloss.Style
+	VisualModeStyle  lipgloss.Style
+	CommandModeStyle lipgloss.Style
 )
 
 // rebuildStyles recreates all styles with current theme colors.
@@ -247,6 +254,17 @@ func rebuildStyles() {
 		Bold(true).
 		Foreground(SecondaryColor)
 
+	// Template picker styles
+	TemplatePickerStyle = lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(PrimaryColor).
+		Padding(1, 2).
+		Align(lipgloss.Left)
+
+	TemplatePickerTitleStyle = lipgloss.NewStyle().
+		Bold(true).
+		Foreground(PrimaryColor)
+
 	// Cursor style
 	CursorStyle = lipgloss.NewStyle().
 		Foreground(SecondaryColor).
@@ -267,6 +285,12 @@ func rebuildStyles() {
 
 	VisualModeStyle = lipgloss.NewStyle().
 		Background(WarningColor).
+		Foreground(BgColor).
+		Bold(true).
+		Padding(0, 1)
+
+	CommandModeStyle = lipgloss.NewStyle().
+		Background(SecondaryColor).
 		Foreground(BgColor).
 		Bold(true).
 		Padding(0, 1)

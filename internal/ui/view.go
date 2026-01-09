@@ -6,8 +6,54 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/kujtimiihoxha/vimtea"
 	"github.com/tlwhittaker/memento/internal/models"
 )
+
+// wrapLine wraps a single line of text to fit within maxWidth.
+// Returns a slice of wrapped lines without modifying the original content.
+func wrapLine(line string, maxWidth int) []string {
+	if maxWidth <= 0 {
+		return []string{""}
+	}
+
+	// If line fits, return as-is
+	if len(line) <= maxWidth {
+		return []string{line}
+	}
+
+	var wrapped []string
+	for len(line) > 0 {
+		if len(line) <= maxWidth {
+			wrapped = append(wrapped, line)
+			break
+		}
+
+		// Find a good breaking point (prefer spaces)
+		breakAt := maxWidth
+		// Look backwards from maxWidth to find a space
+		for i := maxWidth - 1; i > 0; i-- {
+			if line[i] == ' ' {
+				breakAt = i
+				break
+			}
+		}
+
+		// If no space found in first half, just break at maxWidth
+		if breakAt < maxWidth/2 {
+			breakAt = maxWidth
+		}
+
+		wrapped = append(wrapped, line[:breakAt])
+		line = line[breakAt:]
+		// Skip leading space on continuation lines
+		if len(line) > 0 && line[0] == ' ' {
+			line = line[1:]
+		}
+	}
+
+	return wrapped
+}
 
 // View renders the current state of the model.
 func (m Model) View() string {
@@ -36,6 +82,9 @@ func (m Model) View() string {
 	}
 	if m.showingUnsavedDialog {
 		content = m.overlayUnsavedConfirmation(content)
+	}
+	if m.showingTemplatePicker {
+		content = m.overlayTemplatePicker(content)
 	}
 
 	return content
@@ -679,7 +728,7 @@ func (m Model) renderDetailScreen() string {
 }
 
 func (m Model) renderCreateScreen() string {
-	return m.renderEditorScreen("Create New Memo", m.createContent, m.createCursor, false)
+	return m.renderEditorScreen("Create New Memo", m.createEditor)
 }
 
 func (m Model) renderEditScreen() string {
@@ -687,10 +736,10 @@ func (m Model) renderEditScreen() string {
 	if m.editingMemo != nil {
 		title = fmt.Sprintf("Edit Memo #%s", m.editingMemo.ShortID())
 	}
-	return m.renderEditorScreen(title, m.editContent, m.editCursor, true)
+	return m.renderEditorScreen(title, m.editEditor)
 }
 
-func (m Model) renderEditorScreen(title, content string, cursor int, isEdit bool) string {
+func (m Model) renderEditorScreen(title string, editor vimtea.Editor) string {
 	contentWidth := m.width - 2
 	contentHeight := m.height - 4
 	textAreaHeight := contentHeight - 5
@@ -701,61 +750,19 @@ func (m Model) renderEditorScreen(title, content string, cursor int, isEdit bool
 	mainBuilder.WriteString(HeaderStyle.Render(title))
 	mainBuilder.WriteString("\n\n")
 
-	// Calculate cursor position
-	lines := strings.Split(content, "\n")
-	if len(lines) == 0 {
-		lines = []string{""}
+	// Get content from VimTea editor
+	content := ""
+	if editor != nil {
+		// Set editor size and get its view
+		editor.SetSize(contentWidth-6, textAreaHeight)
+		editorView := editor.View()
+
+		// Create text area box
+		textAreaBox := TextAreaStyle.Width(contentWidth - 4).Height(textAreaHeight).Render(editorView)
+		mainBuilder.WriteString(textAreaBox)
+
+		content = editor.GetBuffer().Text()
 	}
-
-	cursorLine := 0
-	cursorCol := cursor
-	pos := 0
-	for i, line := range lines {
-		lineEnd := pos + len(line)
-		if cursor <= lineEnd {
-			cursorLine = i
-			cursorCol = cursor - pos
-			break
-		}
-		pos = lineEnd + 1 // +1 for newline
-		cursorLine = i + 1
-		cursorCol = 0
-	}
-
-	// Render text area content
-	textAreaWidth := contentWidth - 6
-	var textContent strings.Builder
-
-	for i := 0; i < textAreaHeight; i++ {
-		lineContent := ""
-		if i < len(lines) {
-			lineContent = lines[i]
-		}
-
-		// Truncate if needed
-		displayLine := lineContent
-		if len(displayLine) > textAreaWidth {
-			displayLine = displayLine[:textAreaWidth]
-		}
-
-		// Insert cursor
-		if i == cursorLine && !m.loading {
-			if cursorCol >= len(displayLine) {
-				displayLine = displayLine + CursorStyle.Render("_")
-			} else if cursorCol < len(displayLine) {
-				displayLine = displayLine[:cursorCol] + CursorStyle.Render(string(displayLine[cursorCol])) + displayLine[cursorCol+1:]
-			}
-		}
-
-		textContent.WriteString(displayLine)
-		if i < textAreaHeight-1 {
-			textContent.WriteString("\n")
-		}
-	}
-
-	// Create text area box
-	textAreaBox := TextAreaStyle.Width(textAreaWidth + 2).Height(textAreaHeight).Render(textContent.String())
-	mainBuilder.WriteString(textAreaBox)
 
 	// Build main content
 	mainContent := mainBuilder.String()
@@ -767,25 +774,27 @@ func (m Model) renderEditorScreen(title, content string, cursor int, isEdit bool
 
 	// Status bar with position info and vim mode
 	charCount := fmt.Sprintf("%d chars", len(content))
-	posInfo := fmt.Sprintf("Ln %d, Col %d", cursorLine+1, cursorCol+1)
-	leftStatus := charCount + StatusSeparator.String() + posInfo
 
-	// Add vim mode indicator if vim mode is enabled
-	rightHelp := "ctrl+s:save  esc:cancel"
-	if m.settings.IsVimMode() {
-		var modeIndicator string
-		switch m.editorMode {
-		case ModeNormal:
+	// Get mode from VimTea editor
+	var modeIndicator string
+	rightHelp := ":w save  :q quit  :wq save+quit"
+	if editor != nil {
+		mode := editor.GetMode()
+		switch mode {
+		case vimtea.ModeNormal:
 			modeIndicator = NormalModeStyle.Render("NORMAL")
-		case ModeInsert:
+		case vimtea.ModeInsert:
 			modeIndicator = InsertModeStyle.Render("INSERT")
-		case ModeVisual:
+		case vimtea.ModeVisual:
 			modeIndicator = VisualModeStyle.Render("VISUAL")
+		case vimtea.ModeCommand:
+			modeIndicator = CommandModeStyle.Render("COMMAND")
+		default:
+			modeIndicator = NormalModeStyle.Render("NORMAL")
 		}
-		leftStatus = modeIndicator + " " + leftStatus
-		rightHelp = "ctrl+s:save  i:insert  esc:normal"
 	}
 
+	leftStatus := modeIndicator + " " + charCount
 	statusBar := m.renderStatusBar(leftStatus, rightHelp)
 
 	box := BoxStyle.Width(contentWidth).Render(mainContent)
@@ -829,6 +838,71 @@ func (m Model) overlayUnsavedConfirmation(content string) string {
 		StatusKeyStyle.Render("n") + " keep editing"
 
 	dialog := UnsavedDialogStyle.Width(36).Render(dialogContent)
+	return m.centerOverlay(content, dialog)
+}
+
+func (m Model) overlayTemplatePicker(content string) string {
+	var dialogBuilder strings.Builder
+
+	// Title
+	dialogBuilder.WriteString(TemplatePickerTitleStyle.Render("Select Template"))
+	dialogBuilder.WriteString("\n\n")
+
+	// Template list
+	maxVisible := 8
+	startIdx := 0
+	if m.templateCursor >= maxVisible {
+		startIdx = m.templateCursor - maxVisible + 1
+	}
+
+	endIdx := startIdx + maxVisible
+	if endIdx > len(m.templates) {
+		endIdx = len(m.templates)
+	}
+
+	for i := startIdx; i < endIdx; i++ {
+		template := m.templates[i]
+		isSelected := i == m.templateCursor
+
+		var line string
+		if isSelected {
+			line = MemoSelectedStyle.Render("> ") + MemoSelectedBgStyle.Render(template.Name)
+		} else {
+			line = "  " + template.Name
+		}
+
+		dialogBuilder.WriteString(line)
+		dialogBuilder.WriteString("\n")
+	}
+
+	// Scroll indicator if needed
+	if len(m.templates) > maxVisible {
+		scrollInfo := fmt.Sprintf("\n%d/%d", m.templateCursor+1, len(m.templates))
+		dialogBuilder.WriteString(MutedStyle.Render(scrollInfo))
+	}
+
+	// Help text
+	dialogBuilder.WriteString("\n")
+	dialogBuilder.WriteString(StatusKeyStyle.Render("j/k"))
+	dialogBuilder.WriteString(" navigate  ")
+	dialogBuilder.WriteString(StatusKeyStyle.Render("enter"))
+	dialogBuilder.WriteString(" select  ")
+	dialogBuilder.WriteString(StatusKeyStyle.Render("esc"))
+	dialogBuilder.WriteString(" blank")
+
+	// Calculate width based on content
+	dialogWidth := 36
+	for _, t := range m.templates {
+		nameWidth := len(t.Name) + 4
+		if nameWidth > dialogWidth {
+			dialogWidth = nameWidth
+		}
+	}
+	if dialogWidth > 50 {
+		dialogWidth = 50
+	}
+
+	dialog := TemplatePickerStyle.Width(dialogWidth).Render(dialogBuilder.String())
 	return m.centerOverlay(content, dialog)
 }
 

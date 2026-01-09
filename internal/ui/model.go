@@ -4,6 +4,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/kujtimiihoxha/vimtea"
 
 	"github.com/tlwhittaker/memento/internal/api"
 	"github.com/tlwhittaker/memento/internal/config"
@@ -23,15 +24,6 @@ const (
 
 const (
 	SplitPaneMinWidth = 120
-)
-
-// EditorMode represents the current editor mode (for vim bindings).
-type EditorMode int
-
-const (
-	ModeNormal EditorMode = iota
-	ModeInsert
-	ModeVisual
 )
 
 // Model is the root Bubbletea model.
@@ -65,29 +57,16 @@ type Model struct {
 	calendarDay        int
 	inlineCalendarFocus bool // When true, focus is on inline calendar in left pane
 
-	// Create screen state
-	createContent string
-	createCursor  int
+	// VimTea editors for create and edit screens
+	createEditor vimtea.Editor
+	editEditor   vimtea.Editor
 
 	// Edit screen state
-	editContent    string
-	editOriginal   string
-	editCursor     int
+	editOriginal   string       // Original content for unsaved changes check
 	editingMemo    *models.Memo
 	previousScreen Screen // Where to return after edit
 
-	// Vim mode state
-	editorMode    EditorMode
-	visualStart   int    // Start of visual selection
-	pendingAction rune   // Pending operator (d, c, y)
-	pendingCount  int    // Numeric prefix
-	yankBuffer    string // Yanked text for paste
-
-	// Undo/redo history
-	createHistory *EditHistory
-	editHistory   *EditHistory
-
-	// System clipboard
+	// System clipboard (for integration)
 	clipboard *Clipboard
 
 	// Search state
@@ -98,6 +77,11 @@ type Model struct {
 
 	// Unsaved changes dialog
 	showingUnsavedDialog bool
+
+	// Template picker state
+	showingTemplatePicker bool
+	templates             []config.Template
+	templateCursor        int
 
 	// Error state
 	err     error
@@ -112,25 +96,21 @@ func NewModel(client *api.Client, settings *config.Settings) Model {
 	// Apply theme from settings
 	ApplyTheme(settings)
 
-	editorMode := ModeInsert
-	if settings.IsVimMode() {
-		editorMode = ModeNormal
-	}
-
 	now := time.Now()
+
+	// Load templates (ignore errors - empty list is fine)
+	templates, _ := config.LoadTemplates()
 
 	return Model{
 		apiClient:     client,
 		settings:      settings,
 		currentScreen: ScreenList,
 		memos:         []models.Memo{},
-		editorMode:    editorMode,
-		createHistory: NewEditHistory(100),
-		editHistory:   NewEditHistory(100),
 		clipboard:     NewClipboard(),
 		calendarYear:  now.Year(),
 		calendarMonth: int(now.Month()),
 		calendarDay:   now.Day(),
+		templates:     templates,
 	}
 }
 
@@ -167,7 +147,60 @@ type (
 		err error
 	}
 	statusMsg string
+
+	// VimTea editor messages
+	saveRequestedMsg   struct{}
+	cancelRequestedMsg struct{}
+	saveAndQuitMsg     struct{}
 )
+
+// newVimTeaEditor creates a configured VimTea editor for memo editing.
+func newVimTeaEditor(content string) vimtea.Editor {
+	editor := vimtea.NewEditor(
+		vimtea.WithContent(content),
+		vimtea.WithEnableStatusBar(false), // We use memento's status bar
+		vimtea.WithRelativeNumbers(false),
+	)
+
+	// Add ctrl+s binding for save in all modes
+	editor.AddBinding(vimtea.KeyBinding{
+		Key:         "ctrl+s",
+		Mode:        vimtea.ModeNormal,
+		Description: "Save memo",
+		Handler: func(b vimtea.Buffer) tea.Cmd {
+			return func() tea.Msg { return saveRequestedMsg{} }
+		},
+	})
+	editor.AddBinding(vimtea.KeyBinding{
+		Key:         "ctrl+s",
+		Mode:        vimtea.ModeInsert,
+		Description: "Save memo",
+		Handler: func(b vimtea.Buffer) tea.Cmd {
+			return func() tea.Msg { return saveRequestedMsg{} }
+		},
+	})
+	editor.AddBinding(vimtea.KeyBinding{
+		Key:         "ctrl+s",
+		Mode:        vimtea.ModeVisual,
+		Description: "Save memo",
+		Handler: func(b vimtea.Buffer) tea.Cmd {
+			return func() tea.Msg { return saveRequestedMsg{} }
+		},
+	})
+
+	// Add :w, :q, and :wq commands
+	editor.AddCommand("w", func(b vimtea.Buffer, args []string) tea.Cmd {
+		return func() tea.Msg { return saveRequestedMsg{} }
+	})
+	editor.AddCommand("q", func(b vimtea.Buffer, args []string) tea.Cmd {
+		return func() tea.Msg { return cancelRequestedMsg{} }
+	})
+	editor.AddCommand("wq", func(b vimtea.Buffer, args []string) tea.Cmd {
+		return func() tea.Msg { return saveAndQuitMsg{} }
+	})
+
+	return editor
+}
 
 // Commands
 func (m Model) loadMemos() tea.Cmd {
