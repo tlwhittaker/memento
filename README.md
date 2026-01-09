@@ -87,38 +87,6 @@ Run the TUI:
 memento
 ```
 
-## Keybindings
-
-### List Screen
-
-| Key | Action |
-|-----|--------|
-| `j` / `Down` | Move down |
-| `k` / `Up` | Move up |
-| `Enter` | View memo details |
-| `n` | Create new memo |
-| `e` | Edit selected memo |
-| `d` | Delete selected memo |
-| `p` | Toggle pin status |
-| `a` | Toggle archive status |
-| `v` | Cycle visibility |
-| `/` | Search (fuzzy matching) |
-| `r` | Refresh memo list |
-| `q` | Quit |
-
-### Detail Screen
-
-| Key | Action |
-|-----|--------|
-| `j` / `Down` | Scroll down |
-| `k` / `Up` | Scroll up |
-| `e` | Edit memo |
-| `d` | Delete memo |
-| `p` | Toggle pin |
-| `a` | Toggle archive |
-| `v` | Cycle visibility |
-| `Esc` / `q` | Back to list |
-
 ## Themes
 
 Built-in themes:
