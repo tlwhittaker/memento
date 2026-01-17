@@ -62,6 +62,12 @@ func (m Model) View() string {
 		return "Loading..."
 	}
 
+	// Minimum terminal size check
+	if m.width < 40 || m.height < 10 {
+		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
+			"Terminal too small\nResize to at least 40x10")
+	}
+
 	var content string
 
 	switch m.currentScreen {
@@ -160,6 +166,11 @@ func (m Model) shouldShowInlineCalendar() bool {
 }
 
 func (m Model) renderMemoListPane(width, height int, focused bool) string {
+	// Minimum size check
+	if width < 20 || height < 8 {
+		return BoxStyle.Width(width).Render("Window too small")
+	}
+
 	showInlineCal := m.shouldShowInlineCalendar()
 	listFocused := focused && !m.inlineCalendarFocus
 	calFocused := focused && m.inlineCalendarFocus
@@ -171,6 +182,10 @@ func (m Model) renderMemoListPane(width, height int, focused bool) string {
 		calendarHeight = InlineCalendarBoxHeight
 	}
 	listBoxHeight := height - calendarHeight
+	if listBoxHeight < 5 {
+		listBoxHeight = height
+		showInlineCal = false // Not enough room for calendar
+	}
 
 	// Build list content
 	var listBuilder strings.Builder
@@ -311,10 +326,14 @@ func (m Model) renderMemoListPane(width, height int, focused bool) string {
 	// Render list box
 	listContent := listBuilder.String()
 	listLines := strings.Split(listContent, "\n")
-	for len(listLines) < listBoxHeight-3 {
+	listTargetHeight := listBoxHeight - 3
+	if listTargetHeight < 1 {
+		listTargetHeight = 1
+	}
+	for len(listLines) < listTargetHeight {
 		listLines = append(listLines, "")
 	}
-	listContent = strings.Join(listLines[:listBoxHeight-3], "\n")
+	listContent = strings.Join(listLines[:listTargetHeight], "\n")
 
 	listBoxStyle := ContentBoxStyle
 	if listFocused {
@@ -536,6 +555,9 @@ func (m Model) renderPreviewPane(width, height int, focused bool) string {
 func (m Model) renderSinglePaneList() string {
 	contentWidth := m.width - 2
 	contentHeight := m.height - 4
+	if contentWidth < 10 || contentHeight < 5 {
+		return "Window too small"
+	}
 	tz := m.settings.GetTimezone()
 
 	var contentBuilder strings.Builder
@@ -675,10 +697,14 @@ func (m Model) renderSinglePaneList() string {
 
 	// Combine with border
 	lines := strings.Split(content, "\n")
-	for len(lines) < contentHeight-1 {
+	targetHeight := contentHeight - 1
+	if targetHeight < 1 {
+		targetHeight = 1
+	}
+	for len(lines) < targetHeight {
 		lines = append(lines, "")
 	}
-	content = strings.Join(lines[:contentHeight-1], "\n")
+	content = strings.Join(lines[:targetHeight], "\n")
 
 	box := BoxStyle.Width(contentWidth).Render(content)
 	return box + "\n" + statusBar
