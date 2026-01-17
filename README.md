@@ -2,26 +2,45 @@
 
 <img width="1552" height="793" alt="image" src="https://github.com/user-attachments/assets/810e1f04-2f9e-4a5f-a06a-af8029b92b54" />
 
-
-A (heavily still-in-progress) terminal user interface (TUI) for [Memos](https://github.com/usememos/memos) - a lightweight, self-hosted memo hub.
+A terminal user interface (TUI) for [Memos](https://github.com/usememos/memos) - a lightweight, self-hosted memo hub.
 
 Built with [Bubbletea](https://github.com/charmbracelet/bubbletea) and [Lipgloss](https://github.com/charmbracelet/lipgloss).
 
 ## Features
 
-- View all your memos in a scrollable list
-- Create new memos with multi-line support
-- Edit existing memos
-- View full memo details with scrolling
-- Delete memos with confirmation
-- **Vim-style keybindings** with normal/insert/visual modes
-- **Fuzzy search** with `/` key
-- **Pin, archive, and visibility controls**
-- **9 built-in color themes** (Dracula, Nord, Solarized, Gruvbox, etc.)
-- **YAML configuration** for customization
-- **Undo/redo** in editor
-- **System clipboard** integration
-- **Mouse support** (click, scroll)
+### Core
+- View, create, edit, and delete memos
+- Pin, archive, and visibility controls
+- Fuzzy search with `/` key
+- Calendar view with memo indicators
+- Tags browser
+
+### Editor
+- **Vim-style keybindings** (default) with normal/insert/visual modes
+- **Simple editor mode** for users unfamiliar with vim
+- Undo/redo support
+- System clipboard integration
+
+### Navigation
+- **Command palette** (`:`) with fuzzy search
+- **Help overlay** (`?`) with context-aware keybindings
+- Quick navigation: `gg` (top), `G` (bottom), `gt` (tags), `gc` (calendar)
+- Mouse support (click, scroll)
+
+### Search & Filtering
+- Fuzzy text search
+- Advanced filters: `#tag`, `pinned`, `archived`, `v:public`, `date:today`
+- Saved filter shortcuts (1-9 keys)
+
+### Display
+- **Markdown rendering** toggle in detail view
+- 11 built-in color themes including high-contrast options
+- Relative or absolute date formats
+- Compact, comfortable, or expanded view density
+
+### Export
+- Export memos to Markdown, JSON, or plain text
+- Single memo or bulk export
 
 ## Installation
 
@@ -87,6 +106,49 @@ Run the TUI:
 memento
 ```
 
+## Keybindings
+
+### Global
+| Key | Action |
+|-----|--------|
+| `?` | Toggle help overlay |
+| `:` | Open command palette |
+| `q` | Quit / Go back |
+
+### List View
+| Key | Action |
+|-----|--------|
+| `j/k` | Navigate up/down |
+| `Enter` | View memo details |
+| `n` | Create new memo |
+| `e` | Edit memo |
+| `d` | Delete memo |
+| `p` | Toggle pin |
+| `a` | Toggle archive |
+| `v` | Cycle visibility |
+| `/` | Search |
+| `c` | Calendar view |
+| `gg` | Jump to top |
+| `G` | Jump to bottom |
+
+### Editor (Vim mode)
+| Key | Action |
+|-----|--------|
+| `i` | Insert mode |
+| `Esc` | Normal mode |
+| `:w` | Save |
+| `:q` | Quit |
+| `:wq` | Save and quit |
+| `Ctrl+s` | Save |
+
+### Editor (Simple mode)
+| Key | Action |
+|-----|--------|
+| `Ctrl+s` | Save |
+| `Esc` | Cancel |
+
+Switch between editor modes with `:editor vim` or `:editor simple` in the command palette.
+
 ## Themes
 
 Built-in themes:
@@ -99,11 +161,16 @@ Built-in themes:
 - `tokyo-night`
 - `catppuccin-mocha`
 - `monokai`
+- `high-contrast-dark`
+- `high-contrast-light`
 - `custom` (define your own colors)
 
-Set theme in config.yaml or create a custom theme:
+Set theme in config.yaml or switch via command palette (`:theme <name>`).
 
 ```yaml
+theme: dracula
+
+# Or define custom colors:
 theme: custom
 colors:
   primary: "#7D56F4"
@@ -116,6 +183,17 @@ colors:
   background: "#282A36"
   selected: "#44475A"
 ```
+
+## Editor Mode
+
+By default, Memento uses vim-style keybindings in the editor. If you prefer a simpler editing experience, you can switch to simple mode:
+
+```yaml
+editor:
+  mode: simple  # or "vim" (default)
+```
+
+Or toggle at runtime via the command palette: `:editor simple` / `:editor vim`
 
 ## License
 
