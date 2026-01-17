@@ -111,6 +111,13 @@ func (m *Memo) ShortID() string {
 }
 
 func (m *Memo) Preview(maxLen int) string {
+	if maxLen <= 0 {
+		return ""
+	}
+	if maxLen <= 3 {
+		return "..."[:maxLen]
+	}
+
 	content := strings.TrimSpace(m.Content)
 	content = strings.ReplaceAll(content, "\n", " ")
 	content = strings.ReplaceAll(content, "\r", "")
