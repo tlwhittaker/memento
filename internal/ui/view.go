@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/kujtimiihoxha/vimtea"
 	"github.com/tlwhittaker/memento/internal/models"
@@ -74,6 +75,8 @@ func (m Model) View() string {
 		content = m.renderEditScreen()
 	case ScreenCalendar:
 		content = m.renderCalendarScreen()
+	case ScreenTags:
+		content = m.renderTagsScreen()
 	}
 
 	// Overlay dialogs
@@ -85,6 +88,12 @@ func (m Model) View() string {
 	}
 	if m.showingTemplatePicker {
 		content = m.overlayTemplatePicker(content)
+	}
+	if m.showingHelp {
+		content = m.overlayHelp(content)
+	}
+	if m.showingCommandPalette {
+		content = m.overlayCommandPalette(content)
 	}
 
 	return content
@@ -110,21 +119,30 @@ func (m Model) renderSplitPaneList() string {
 	displayMemos := m.getDisplayMemos()
 	showInlineCal := m.shouldShowInlineCalendar()
 	var leftStatus, rightHelp string
-	if m.searchActive {
+
+	// Build left status
+	if m.selectionMode && m.selectedCount() > 0 {
+		leftStatus = fmt.Sprintf("%d selected", m.selectedCount())
+	} else if m.searchActive {
 		leftStatus = fmt.Sprintf("%d/%d memos", len(displayMemos), len(m.memos))
-		rightHelp = "enter:open  /:search  q:quit"
-	} else if m.splitFocusRight {
-		leftStatus = fmt.Sprintf("%d memos", len(displayMemos))
-		rightHelp = "←:list  j/k:scroll  e:edit  q:quit"
-	} else if showInlineCal && m.inlineCalendarFocus {
-		leftStatus = fmt.Sprintf("%d memos", len(displayMemos))
-		rightHelp = "h/l:day  j/k:week  H/L:month  c:list  →:preview"
 	} else {
 		leftStatus = fmt.Sprintf("%d memos", len(displayMemos))
+	}
+
+	// Build right help
+	if m.selectionMode {
+		rightHelp = "Space:toggle  V:exit  d:delete  a:archive  Esc:clear"
+	} else if m.searchActive {
+		rightHelp = "enter:open  /:search  q:quit"
+	} else if m.splitFocusRight {
+		rightHelp = "←:list  j/k:scroll  e:edit  ?:help  q:quit"
+	} else if showInlineCal && m.inlineCalendarFocus {
+		rightHelp = "h/l:day  j/k:week  H/L:month  c:list  →:preview"
+	} else {
 		if showInlineCal {
-			rightHelp = "→:preview  c:calendar  n:new  e:edit  /:search"
+			rightHelp = "→:preview  c:calendar  n:new  ?:help  /:search"
 		} else {
-			rightHelp = "→:preview  n:new  e:edit  /:search  c:cal  q:quit"
+			rightHelp = "→:preview  n:new  ?:help  /:search  c:cal  q:quit"
 		}
 	}
 	statusBar := m.renderStatusBar(leftStatus, rightHelp)
@@ -221,8 +239,20 @@ func (m Model) renderMemoListPane(width, height int, focused bool) string {
 			idx := i + offset
 			memo := displayMemos[idx]
 			isSelected := idx == m.listCursor
+			isChecked := m.selectedMemos[memo.Name]
 
 			var lineBuilder strings.Builder
+
+			// Selection checkbox (when in selection mode)
+			if m.selectionMode {
+				if isChecked {
+					lineBuilder.WriteString(SuccessStyle.Render("[x]"))
+				} else {
+					lineBuilder.WriteString(MutedStyle.Render("[ ]"))
+				}
+			}
+
+			// Cursor indicator
 			if isSelected && listFocused {
 				lineBuilder.WriteString(MemoSelectedStyle.Render(" > "))
 			} else if isSelected {
@@ -231,14 +261,27 @@ func (m Model) renderMemoListPane(width, height int, focused bool) string {
 				lineBuilder.WriteString("   ")
 			}
 
+			// Pinned indicator
 			if memo.Pinned {
 				lineBuilder.WriteString(PinnedStyle.Render("* "))
 			}
 
+			// Resource indicator
+			if memo.HasResources() {
+				lineBuilder.WriteString(MutedStyle.Render("[+] "))
+			}
+
+			// Calculate preview length
 			date := memo.ShortDateIn(tz)
 			maxPreviewLen := width - 16 - len(date)
 			if memo.Pinned {
 				maxPreviewLen -= 2
+			}
+			if memo.HasResources() {
+				maxPreviewLen -= 4
+			}
+			if m.selectionMode {
+				maxPreviewLen -= 4
 			}
 			if maxPreviewLen < 10 {
 				maxPreviewLen = 10
@@ -657,10 +700,23 @@ func (m Model) renderDetailScreen() string {
 	contentBuilder.WriteString(HeaderStyle.Render(header))
 	contentBuilder.WriteString("\n")
 
-	// Metadata line
-	meta := MutedStyle.Render(fmt.Sprintf("Created: %s", m.selectedMemo.FormattedDateIn(tz)))
+	// Metadata line with pinned/visibility
+	metaParts := []string{m.selectedMemo.FormattedDateIn(tz)}
+	if m.selectedMemo.Pinned {
+		metaParts = append(metaParts, "Pinned")
+	}
+	metaParts = append(metaParts, m.selectedMemo.Visibility)
+	meta := MutedStyle.Render(strings.Join(metaParts, " | "))
 	contentBuilder.WriteString(meta)
 	contentBuilder.WriteString("\n")
+
+	// Show resource count if any
+	if m.selectedMemo.HasResources() {
+		resourceInfo := fmt.Sprintf("[%d attachments]", m.selectedMemo.ResourceCount())
+		contentBuilder.WriteString(MutedStyle.Render(resourceInfo))
+		contentBuilder.WriteString("\n")
+	}
+
 	contentBuilder.WriteString(MutedStyle.Render(strings.Repeat("─", contentWidth-4)))
 	contentBuilder.WriteString("\n")
 
@@ -670,22 +726,28 @@ func (m Model) renderDetailScreen() string {
 		contentBuilder.WriteString("\n")
 	}
 
-	// Content with scrolling - wrap long lines at word boundaries
-	rawLines := strings.Split(m.selectedMemo.Content, "\n")
-	wrapWidth := contentWidth - 6
+	// Content with optional markdown rendering
 	var contentLines []string
-	for _, line := range rawLines {
-		for len(line) > wrapWidth {
-			breakPoint := strings.LastIndex(line[:wrapWidth], " ")
-			if breakPoint <= 0 {
-				breakPoint = wrapWidth
-			}
-			contentLines = append(contentLines, line[:breakPoint])
-			line = strings.TrimLeft(line[breakPoint:], " ")
+	wrapWidth := contentWidth - 6
+
+	if m.detailRenderMarkdown {
+		// Render as markdown
+		rendered, err := RenderMarkdown(m.selectedMemo.Content, wrapWidth)
+		if err == nil {
+			contentLines = strings.Split(rendered, "\n")
+		} else {
+			// Fall back to plain text on error
+			contentLines = m.wrapContent(m.selectedMemo.Content, wrapWidth)
 		}
-		contentLines = append(contentLines, line)
+	} else {
+		// Plain text with wrapping
+		contentLines = m.wrapContent(m.selectedMemo.Content, wrapWidth)
 	}
-	availableHeight := contentHeight - 7
+
+	availableHeight := contentHeight - 8
+	if m.selectedMemo.HasResources() {
+		availableHeight--
+	}
 
 	maxScroll := len(contentLines) - availableHeight
 	if maxScroll < 0 {
@@ -716,19 +778,130 @@ func (m Model) renderDetailScreen() string {
 	}
 	content = strings.Join(lines[:contentHeight-1], "\n")
 
-	// Status bar with scroll info
-	scrollInfo := ""
+	// Status bar with scroll info and markdown indicator
+	var leftParts []string
 	if len(contentLines) > availableHeight {
-		scrollInfo = fmt.Sprintf("Line %d/%d", m.detailScroll+1, len(contentLines))
+		leftParts = append(leftParts, fmt.Sprintf("Line %d/%d", m.detailScroll+1, len(contentLines)))
 	}
-	statusBar := m.renderStatusBar(scrollInfo, "e:edit  d:delete  esc:back")
+	if m.detailRenderMarkdown {
+		leftParts = append(leftParts, "MD")
+	}
+	scrollInfo := strings.Join(leftParts, " | ")
+	statusBar := m.renderStatusBar(scrollInfo, "e:edit  m:markdown  y:copy  ?:help  esc:back")
 
 	box := BoxStyle.Width(contentWidth).Render(content)
 	return box + "\n" + statusBar
 }
 
+// wrapContent wraps content text to fit within maxWidth.
+func (m Model) wrapContent(content string, maxWidth int) []string {
+	rawLines := strings.Split(content, "\n")
+	var contentLines []string
+	for _, line := range rawLines {
+		for len(line) > maxWidth {
+			breakPoint := strings.LastIndex(line[:maxWidth], " ")
+			if breakPoint <= 0 {
+				breakPoint = maxWidth
+			}
+			contentLines = append(contentLines, line[:breakPoint])
+			line = strings.TrimLeft(line[breakPoint:], " ")
+		}
+		contentLines = append(contentLines, line)
+	}
+	return contentLines
+}
+
+// getMemoLinesForDensity returns the number of lines per memo based on view density.
+func (m Model) getMemoLinesForDensity() int {
+	switch m.viewDensity {
+	case "compact":
+		return 1
+	case "expanded":
+		return 3
+	default: // comfortable
+		return 1
+	}
+}
+
+// renderMemoCompact renders a memo in compact format (just title).
+func (m Model) renderMemoCompact(memo models.Memo, width int, isSelected, isFocused bool) string {
+	var lineBuilder strings.Builder
+
+	// Selection indicator
+	if isSelected && isFocused {
+		lineBuilder.WriteString(MemoSelectedStyle.Render(">"))
+	} else {
+		lineBuilder.WriteString(" ")
+	}
+
+	// Pinned indicator
+	if memo.Pinned {
+		lineBuilder.WriteString(PinnedStyle.Render("*"))
+	} else {
+		lineBuilder.WriteString(" ")
+	}
+
+	// Preview
+	maxLen := width - 4
+	if maxLen < 10 {
+		maxLen = 10
+	}
+	preview := memo.Preview(maxLen)
+
+	if isSelected && isFocused {
+		lineBuilder.WriteString(MemoSelectedBgStyle.Render(preview))
+	} else {
+		lineBuilder.WriteString(preview)
+	}
+
+	return lineBuilder.String()
+}
+
+// renderMemoExpanded renders a memo in expanded format (3 lines).
+func (m Model) renderMemoExpanded(memo models.Memo, width int, isSelected, isFocused bool, tz *time.Location) []string {
+	lines := make([]string, 3)
+
+	// Line 1: Title with indicators
+	var line1 strings.Builder
+	if isSelected && isFocused {
+		line1.WriteString(MemoSelectedStyle.Render(" > "))
+	} else {
+		line1.WriteString("   ")
+	}
+	if memo.Pinned {
+		line1.WriteString(PinnedStyle.Render("* "))
+	}
+	title := memo.Title()
+	if len(title) > width-10 {
+		title = title[:width-13] + "..."
+	}
+	if isSelected && isFocused {
+		line1.WriteString(MemoSelectedBgStyle.Render(title))
+	} else {
+		line1.WriteString(MemoTitleStyle.Render(title))
+	}
+	lines[0] = line1.String()
+
+	// Line 2: Preview of content
+	preview := memo.Preview(width - 6)
+	lines[1] = "     " + MutedStyle.Render(preview)
+
+	// Line 3: Date and metadata
+	date := memo.RelativeDateIn(tz)
+	meta := fmt.Sprintf("     %s | %s", date, memo.Visibility)
+	if memo.HasResources() {
+		meta += fmt.Sprintf(" | %d attachments", memo.ResourceCount())
+	}
+	lines[2] = MutedStyle.Render(meta)
+
+	return lines
+}
+
 func (m Model) renderCreateScreen() string {
-	return m.renderEditorScreen("Create New Memo", m.createEditor)
+	if m.editorMode == "vim" {
+		return m.renderVimEditorScreen("Create New Memo", m.createEditor)
+	}
+	return m.renderSimpleEditorScreen("Create New Memo", m.simpleCreateEditor)
 }
 
 func (m Model) renderEditScreen() string {
@@ -736,10 +909,13 @@ func (m Model) renderEditScreen() string {
 	if m.editingMemo != nil {
 		title = fmt.Sprintf("Edit Memo #%s", m.editingMemo.ShortID())
 	}
-	return m.renderEditorScreen(title, m.editEditor)
+	if m.editorMode == "vim" {
+		return m.renderVimEditorScreen(title, m.editEditor)
+	}
+	return m.renderSimpleEditorScreen(title, m.simpleEditEditor)
 }
 
-func (m Model) renderEditorScreen(title string, editor vimtea.Editor) string {
+func (m Model) renderVimEditorScreen(title string, editor vimtea.Editor) string {
 	contentWidth := m.width - 2
 	contentHeight := m.height - 4
 	textAreaHeight := contentHeight - 5
@@ -793,6 +969,48 @@ func (m Model) renderEditorScreen(title string, editor vimtea.Editor) string {
 			modeIndicator = NormalModeStyle.Render("NORMAL")
 		}
 	}
+
+	leftStatus := modeIndicator + " " + charCount
+	statusBar := m.renderStatusBar(leftStatus, rightHelp)
+
+	box := BoxStyle.Width(contentWidth).Render(mainContent)
+	return box + "\n" + statusBar
+}
+
+func (m Model) renderSimpleEditorScreen(title string, editor textarea.Model) string {
+	contentWidth := m.width - 2
+	contentHeight := m.height - 4
+	textAreaHeight := contentHeight - 5
+
+	var mainBuilder strings.Builder
+
+	// Header
+	mainBuilder.WriteString(HeaderStyle.Render(title))
+	mainBuilder.WriteString("\n\n")
+
+	// Set editor size and get its view
+	editor.SetWidth(contentWidth - 6)
+	editor.SetHeight(textAreaHeight)
+	editorView := editor.View()
+
+	// Create text area box
+	textAreaBox := TextAreaStyle.Width(contentWidth - 4).Height(textAreaHeight).Render(editorView)
+	mainBuilder.WriteString(textAreaBox)
+
+	content := editor.Value()
+
+	// Build main content
+	mainContent := mainBuilder.String()
+	mainLines := strings.Split(mainContent, "\n")
+	for len(mainLines) < contentHeight-1 {
+		mainLines = append(mainLines, "")
+	}
+	mainContent = strings.Join(mainLines[:contentHeight-1], "\n")
+
+	// Status bar
+	charCount := fmt.Sprintf("%d chars", len(content))
+	modeIndicator := InsertModeStyle.Render("SIMPLE")
+	rightHelp := "ctrl+s save  esc cancel"
 
 	leftStatus := modeIndicator + " " + charCount
 	statusBar := m.renderStatusBar(leftStatus, rightHelp)
@@ -906,50 +1124,17 @@ func (m Model) overlayTemplatePicker(content string) string {
 	return m.centerOverlay(content, dialog)
 }
 
-func (m Model) centerOverlay(background, overlay string) string {
-	bgLines := strings.Split(background, "\n")
-	overlayLines := strings.Split(overlay, "\n")
-
-	startY := (m.height - len(overlayLines)) / 2
-	startX := (m.width - lipgloss.Width(overlayLines[0])) / 2
-
-	if startX < 0 {
-		startX = 0
-	}
-	if startY < 0 {
-		startY = 0
-	}
-
-	// Overlay dialog on background
-	for i, overlayLine := range overlayLines {
-		bgIdx := startY + i
-		if bgIdx >= 0 && bgIdx < len(bgLines) {
-			bgLine := bgLines[bgIdx]
-
-			// Ensure background line is long enough
-			for len(bgLine) < startX+lipgloss.Width(overlayLine) {
-				bgLine += " "
-			}
-
-			// Splice in overlay line
-			newLine := ""
-			if startX > 0 && len(bgLine) >= startX {
-				newLine = bgLine[:startX]
-			} else {
-				newLine = strings.Repeat(" ", startX)
-			}
-			newLine += overlayLine
-
-			overlayWidth := lipgloss.Width(overlayLine)
-			if startX+overlayWidth < len(bgLine) {
-				newLine += bgLine[startX+overlayWidth:]
-			}
-
-			bgLines[bgIdx] = newLine
-		}
-	}
-
-	return strings.Join(bgLines, "\n")
+func (m Model) centerOverlay(_ string, overlay string) string {
+	// Use lipgloss.Place to center the overlay on a clean background.
+	// We ignore the background parameter to avoid ANSI escape sequence issues
+	// from trying to splice styled strings together.
+	return lipgloss.Place(
+		m.width,
+		m.height,
+		lipgloss.Center,
+		lipgloss.Center,
+		overlay,
+	)
 }
 
 func (m Model) renderCalendarScreen() string {
@@ -1091,4 +1276,172 @@ func (m Model) countMemosInMonth(year, month int) int {
 		}
 	}
 	return count
+}
+
+func (m Model) overlayHelp(content string) string {
+	var dialogBuilder strings.Builder
+
+	// Title
+	dialogBuilder.WriteString(HeaderStyle.Render("Help"))
+	dialogBuilder.WriteString("\n\n")
+
+	// Get context-aware help
+	inSplitPane := m.width >= SplitPaneMinWidth
+	sections := GetHelpSections(m.currentScreen, inSplitPane, m.inlineCalendarFocus, m.editorMode)
+
+	for _, section := range sections {
+		dialogBuilder.WriteString(SubtitleStyle.Render(section.Title))
+		dialogBuilder.WriteString("\n")
+		for _, item := range section.Items {
+			dialogBuilder.WriteString(fmt.Sprintf("  %s  %s\n",
+				StatusKeyStyle.Render(fmt.Sprintf("%-10s", item.Key)),
+				item.Description))
+		}
+		dialogBuilder.WriteString("\n")
+	}
+
+	// Footer
+	dialogBuilder.WriteString(MutedStyle.Render("Press ? or Esc to close"))
+
+	// Calculate width
+	dialogWidth := 50
+	if m.width > 80 {
+		dialogWidth = 60
+	}
+
+	dialog := HelpDialogStyle.Width(dialogWidth).Render(dialogBuilder.String())
+	return m.centerOverlay(content, dialog)
+}
+
+func (m Model) overlayCommandPalette(content string) string {
+	var dialogBuilder strings.Builder
+
+	// Title and search box
+	dialogBuilder.WriteString(HeaderStyle.Render("Command Palette"))
+	dialogBuilder.WriteString("\n\n")
+
+	// Search input
+	searchPrefix := MutedStyle.Render(": ")
+	searchContent := m.commandPaletteQuery + CursorStyle.Render("_")
+	dialogBuilder.WriteString(searchPrefix + searchContent)
+	dialogBuilder.WriteString("\n\n")
+
+	// Command list
+	maxVisible := 10
+	startIdx := 0
+	if m.commandPaletteCursor >= maxVisible {
+		startIdx = m.commandPaletteCursor - maxVisible + 1
+	}
+
+	endIdx := startIdx + maxVisible
+	if endIdx > len(m.filteredCommands) {
+		endIdx = len(m.filteredCommands)
+	}
+
+	if len(m.filteredCommands) == 0 {
+		dialogBuilder.WriteString(MutedStyle.Render("  No commands found"))
+		dialogBuilder.WriteString("\n")
+	} else {
+		for i := startIdx; i < endIdx; i++ {
+			cmd := m.filteredCommands[i]
+			isSelected := i == m.commandPaletteCursor
+
+			var line string
+			if isSelected {
+				line = MemoSelectedStyle.Render("> ") + MemoSelectedBgStyle.Render(cmd.Name)
+				line += "  " + MutedStyle.Render(cmd.Description)
+			} else {
+				line = "  " + cmd.Name + "  " + MutedStyle.Render(cmd.Description)
+			}
+
+			dialogBuilder.WriteString(line)
+			dialogBuilder.WriteString("\n")
+		}
+	}
+
+	// Scroll indicator
+	if len(m.filteredCommands) > maxVisible {
+		scrollInfo := fmt.Sprintf("\n%d/%d", m.commandPaletteCursor+1, len(m.filteredCommands))
+		dialogBuilder.WriteString(MutedStyle.Render(scrollInfo))
+	}
+
+	// Footer
+	dialogBuilder.WriteString("\n")
+	dialogBuilder.WriteString(StatusKeyStyle.Render("Enter"))
+	dialogBuilder.WriteString(" select  ")
+	dialogBuilder.WriteString(StatusKeyStyle.Render("Esc"))
+	dialogBuilder.WriteString(" cancel")
+
+	// Calculate width
+	dialogWidth := 50
+	if m.width > 100 {
+		dialogWidth = 60
+	}
+
+	dialog := CommandPaletteStyle.Width(dialogWidth).Render(dialogBuilder.String())
+	return m.centerOverlay(content, dialog)
+}
+
+func (m Model) renderTagsScreen() string {
+	contentWidth := m.width - 2
+	contentHeight := m.height - 4
+
+	var contentBuilder strings.Builder
+
+	// Header
+	header := HeaderStyle.Render("Tags")
+	contentBuilder.WriteString(header)
+	contentBuilder.WriteString("\n\n")
+
+	if len(m.allTags) == 0 {
+		contentBuilder.WriteString(MutedStyle.Render("  No tags found"))
+		contentBuilder.WriteString("\n")
+	} else {
+		// Calculate visible area
+		visibleHeight := contentHeight - 7
+		startIdx := m.tagScrollOffset
+		endIdx := startIdx + visibleHeight
+		if endIdx > len(m.allTags) {
+			endIdx = len(m.allTags)
+		}
+
+		for i := startIdx; i < endIdx; i++ {
+			tag := m.allTags[i]
+			isSelected := i == m.tagCursor
+
+			var line string
+			countStr := fmt.Sprintf("(%d)", tag.Count)
+
+			if isSelected {
+				line = MemoSelectedStyle.Render(" > ") +
+					MemoSelectedBgStyle.Render("#"+tag.Name) +
+					"  " + MutedStyle.Render(countStr)
+			} else {
+				line = "   " + TagStyle.Render("#"+tag.Name) + "  " + MutedStyle.Render(countStr)
+			}
+
+			contentBuilder.WriteString(line)
+			contentBuilder.WriteString("\n")
+		}
+
+		// Scroll indicator
+		if len(m.allTags) > visibleHeight {
+			scrollInfo := fmt.Sprintf("\n%d/%d tags", m.tagCursor+1, len(m.allTags))
+			contentBuilder.WriteString(MutedStyle.Render(scrollInfo))
+		}
+	}
+
+	content := contentBuilder.String()
+	lines := strings.Split(content, "\n")
+	for len(lines) < contentHeight-1 {
+		lines = append(lines, "")
+	}
+	content = strings.Join(lines[:contentHeight-1], "\n")
+
+	leftStatus := fmt.Sprintf("%d tags", len(m.allTags))
+	rightHelp := "j/k:navigate  enter:filter  ?:help  esc:back"
+	statusBar := m.renderStatusBar(leftStatus, rightHelp)
+
+	box := BoxStyle.Width(contentWidth).Render(content)
+	return box + "\n" + statusBar
 }

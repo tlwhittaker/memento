@@ -126,6 +126,30 @@ var Themes = map[string]Theme{
 		Background: lipgloss.Color("#272822"),
 		Selected:   lipgloss.Color("#3E3D32"),
 	},
+	"high-contrast-dark": {
+		Name:       "High Contrast Dark",
+		Primary:    lipgloss.Color("#FFFFFF"),
+		Secondary:  lipgloss.Color("#00FFFF"),
+		Error:      lipgloss.Color("#FF0000"),
+		Success:    lipgloss.Color("#00FF00"),
+		Warning:    lipgloss.Color("#FFFF00"),
+		Muted:      lipgloss.Color("#808080"),
+		Text:       lipgloss.Color("#FFFFFF"),
+		Background: lipgloss.Color("#000000"),
+		Selected:   lipgloss.Color("#333333"),
+	},
+	"high-contrast-light": {
+		Name:       "High Contrast Light",
+		Primary:    lipgloss.Color("#000000"),
+		Secondary:  lipgloss.Color("#0000AA"),
+		Error:      lipgloss.Color("#AA0000"),
+		Success:    lipgloss.Color("#006600"),
+		Warning:    lipgloss.Color("#AA6600"),
+		Muted:      lipgloss.Color("#666666"),
+		Text:       lipgloss.Color("#000000"),
+		Background: lipgloss.Color("#FFFFFF"),
+		Selected:   lipgloss.Color("#DDDDDD"),
+	},
 }
 
 // GetTheme returns a theme by name, falling back to dracula if not found.

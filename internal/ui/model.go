@@ -3,11 +3,13 @@ package ui
 import (
 	"time"
 
+	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/kujtimiihoxha/vimtea"
 
 	"github.com/tlwhittaker/memento/internal/api"
 	"github.com/tlwhittaker/memento/internal/config"
+	"github.com/tlwhittaker/memento/internal/export"
 	"github.com/tlwhittaker/memento/internal/models"
 )
 
@@ -20,6 +22,7 @@ const (
 	ScreenCreate
 	ScreenEdit
 	ScreenCalendar
+	ScreenTags
 )
 
 const (
@@ -52,17 +55,24 @@ type Model struct {
 	previewScroll   int
 
 	// Calendar state
-	calendarYear       int
-	calendarMonth      int
-	calendarDay        int
+	calendarYear        int
+	calendarMonth       int
+	calendarDay         int
 	inlineCalendarFocus bool // When true, focus is on inline calendar in left pane
 
 	// VimTea editors for create and edit screens
 	createEditor vimtea.Editor
 	editEditor   vimtea.Editor
 
+	// Simple textarea editors (alternative to vim mode)
+	simpleCreateEditor textarea.Model
+	simpleEditEditor   textarea.Model
+
+	// Editor mode: "vim" or "simple"
+	editorMode string
+
 	// Edit screen state
-	editOriginal   string       // Original content for unsaved changes check
+	editOriginal   string // Original content for unsaved changes check
 	editingMemo    *models.Memo
 	previousScreen Screen // Where to return after edit
 
@@ -89,6 +99,39 @@ type Model struct {
 
 	// Message to display (e.g., "Memo created successfully")
 	statusMessage string
+
+	// Help overlay
+	showingHelp bool
+
+	// Command palette
+	showingCommandPalette bool
+	commandPaletteQuery   string
+	commandPaletteCursor  int
+	commands              []Command
+	filteredCommands      []Command
+
+	// Tags browser
+	allTags         []TagInfo
+	tagCursor       int
+	tagScrollOffset int
+
+	// Multi-select
+	selectedMemos map[string]bool
+	selectionMode bool
+
+	// Markdown rendering toggle
+	detailRenderMarkdown bool
+
+	// View density (compact, comfortable, expanded)
+	viewDensity string
+
+	// Quick navigation pending key (for gg, gt, gc, gl)
+	pendingKey string
+
+	// Pagination
+	totalMemoCount   int
+	hasMorePages     bool
+	loadingMoreMemos bool
 }
 
 // NewModel creates a new root model.
@@ -101,6 +144,12 @@ func NewModel(client *api.Client, settings *config.Settings) Model {
 	// Load templates (ignore errors - empty list is fine)
 	templates, _ := config.LoadTemplates()
 
+	// Determine editor mode from settings
+	editorMode := "vim"
+	if settings.Editor.Mode == "simple" {
+		editorMode = "simple"
+	}
+
 	return Model{
 		apiClient:     client,
 		settings:      settings,
@@ -111,6 +160,10 @@ func NewModel(client *api.Client, settings *config.Settings) Model {
 		calendarMonth: int(now.Month()),
 		calendarDay:   now.Day(),
 		templates:     templates,
+		commands:      GetCommands(),
+		selectedMemos: make(map[string]bool),
+		viewDensity:   "comfortable",
+		editorMode:    editorMode,
 	}
 }
 
@@ -202,6 +255,39 @@ func newVimTeaEditor(content string) vimtea.Editor {
 	return editor
 }
 
+// newSimpleEditor creates a configured textarea for simple text editing.
+func newSimpleEditor(content string, width, height int) textarea.Model {
+	ta := textarea.New()
+	ta.SetValue(content)
+	ta.SetWidth(width)
+	ta.SetHeight(height)
+	ta.Focus()
+	ta.ShowLineNumbers = false
+	ta.CharLimit = 0 // No limit
+	ta.Placeholder = "Start typing..."
+	return ta
+}
+
+// initCreateEditor initializes the create editor based on current mode.
+func (m *Model) initCreateEditor(content string) {
+	if m.editorMode == "vim" {
+		m.createEditor = newVimTeaEditor(content)
+		m.createEditor.SetSize(m.width-8, m.height-12)
+	} else {
+		m.simpleCreateEditor = newSimpleEditor(content, m.width-8, m.height-12)
+	}
+}
+
+// initEditEditor initializes the edit editor based on current mode.
+func (m *Model) initEditEditor(content string) {
+	if m.editorMode == "vim" {
+		m.editEditor = newVimTeaEditor(content)
+		m.editEditor.SetSize(m.width-8, m.height-12)
+	} else {
+		m.simpleEditEditor = newSimpleEditor(content, m.width-8, m.height-12)
+	}
+}
+
 // Commands
 func (m Model) loadMemos() tea.Cmd {
 	return func() tea.Msg {
@@ -291,4 +377,110 @@ func (m Model) cycleVisibility(name string, currentVisibility string) tea.Cmd {
 		}
 		return memoVisibilityMsg{memo: models.FromAPI(*memo)}
 	}
+}
+
+// applyAdvancedFilter applies the advanced filter to memos.
+func (m *Model) applyAdvancedFilter() {
+	if m.searchQuery == "" {
+		m.filteredMemos = nil
+		return
+	}
+
+	filter := ParseFilter(m.searchQuery)
+	m.filteredMemos = ApplyFilter(m.memos, filter)
+
+	// Reset cursor if out of range
+	if m.listCursor >= len(m.filteredMemos) {
+		m.listCursor = 0
+	}
+}
+
+// updateTags refreshes the tag list from current memos.
+func (m *Model) updateTags() {
+	m.allTags = ExtractTags(m.memos)
+}
+
+// exportCurrentMemo exports the currently selected memo.
+func (m Model) exportCurrentMemo(format string) tea.Cmd {
+	return func() tea.Msg {
+		memoList := m.getDisplayMemos()
+		if len(memoList) == 0 || m.listCursor >= len(memoList) {
+			return statusMsg("No memo to export")
+		}
+
+		memo := memoList[m.listCursor]
+		var expFormat export.ExportFormat
+		switch format {
+		case "markdown":
+			expFormat = export.FormatMarkdown
+		case "json":
+			expFormat = export.FormatJSON
+		default:
+			expFormat = export.FormatText
+		}
+
+		filepath, err := export.ExportMemo(memo, expFormat, "")
+		if err != nil {
+			return statusMsg("Export failed: " + err.Error())
+		}
+		return statusMsg("Exported to: " + filepath)
+	}
+}
+
+// exportAllMemos exports all memos.
+func (m Model) exportAllMemos() tea.Cmd {
+	return func() tea.Msg {
+		if len(m.memos) == 0 {
+			return statusMsg("No memos to export")
+		}
+
+		dir, err := export.ExportMemos(m.memos, export.FormatMarkdown)
+		if err != nil {
+			return statusMsg("Export failed: " + err.Error())
+		}
+		return statusMsg("Exported to: " + dir)
+	}
+}
+
+// loadMoreMemos loads the next page of memos.
+func (m Model) loadMoreMemos() tea.Cmd {
+	if m.nextPageToken == "" {
+		return nil
+	}
+	return func() tea.Msg {
+		resp, err := m.apiClient.ListMemos(50, m.nextPageToken)
+		if err != nil {
+			return errMsg{err: err}
+		}
+		return memosAppendedMsg{
+			memos:         models.FromAPIList(resp.Memos),
+			nextPageToken: resp.NextPageToken,
+		}
+	}
+}
+
+// Message type for appending memos
+type memosAppendedMsg struct {
+	memos         []models.Memo
+	nextPageToken string
+}
+
+// clearSelection clears all selected memos.
+func (m *Model) clearSelection() {
+	m.selectedMemos = make(map[string]bool)
+	m.selectionMode = false
+}
+
+// toggleSelection toggles selection for a memo.
+func (m *Model) toggleSelection(name string) {
+	if m.selectedMemos[name] {
+		delete(m.selectedMemos, name)
+	} else {
+		m.selectedMemos[name] = true
+	}
+}
+
+// selectedCount returns the number of selected memos.
+func (m *Model) selectedCount() int {
+	return len(m.selectedMemos)
 }

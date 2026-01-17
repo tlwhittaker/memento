@@ -128,6 +128,15 @@ var (
 	TemplatePickerTitleStyle lipgloss.Style
 )
 
+// Help dialog style
+var HelpDialogStyle lipgloss.Style
+
+// Command palette style
+var CommandPaletteStyle lipgloss.Style
+
+// Tag style
+var TagStyle lipgloss.Style
+
 // Cursor style
 var CursorStyle lipgloss.Style
 
@@ -264,6 +273,25 @@ func rebuildStyles() {
 	TemplatePickerTitleStyle = lipgloss.NewStyle().
 		Bold(true).
 		Foreground(PrimaryColor)
+
+	// Help dialog style
+	HelpDialogStyle = lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(PrimaryColor).
+		Padding(1, 2).
+		Align(lipgloss.Left)
+
+	// Command palette style
+	CommandPaletteStyle = lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(SecondaryColor).
+		Padding(1, 2).
+		Align(lipgloss.Left)
+
+	// Tag style
+	TagStyle = lipgloss.NewStyle().
+		Foreground(SecondaryColor).
+		Bold(true)
 
 	// Cursor style
 	CursorStyle = lipgloss.NewStyle().

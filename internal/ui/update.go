@@ -20,12 +20,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		// Update VimTea editor sizes
-		if m.createEditor != nil {
-			m.createEditor.SetSize(msg.Width-8, msg.Height-12)
-		}
-		if m.editEditor != nil {
-			m.editEditor.SetSize(msg.Width-8, msg.Height-12)
+		// Update editor sizes based on mode
+		if m.editorMode == "vim" {
+			if m.createEditor != nil {
+				m.createEditor.SetSize(msg.Width-8, msg.Height-12)
+			}
+			if m.editEditor != nil {
+				m.editEditor.SetSize(msg.Width-8, msg.Height-12)
+			}
+		} else {
+			m.simpleCreateEditor.SetWidth(msg.Width - 8)
+			m.simpleCreateEditor.SetHeight(msg.Height - 12)
+			m.simpleEditEditor.SetWidth(msg.Width - 8)
+			m.simpleEditEditor.SetHeight(msg.Height - 12)
 		}
 		return m, nil
 
@@ -36,7 +43,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loading = false
 		m.memos = msg.memos
 		m.nextPageToken = msg.nextPageToken
+		m.hasMorePages = msg.nextPageToken != ""
 		m.err = nil
+		m.updateTags()
+		return m, nil
+
+	case memosAppendedMsg:
+		m.loadingMoreMemos = false
+		m.memos = append(m.memos, msg.memos...)
+		m.nextPageToken = msg.nextPageToken
+		m.hasMorePages = msg.nextPageToken != ""
+		m.updateTags()
 		return m, nil
 
 	case memoCreatedMsg:
@@ -238,6 +255,16 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	}
 
+	// Handle help overlay first (can be dismissed from anywhere)
+	if m.showingHelp {
+		return m.handleHelpKeys(msg)
+	}
+
+	// Handle command palette
+	if m.showingCommandPalette {
+		return m.handleCommandPalette(msg)
+	}
+
 	// Handle template picker first
 	if m.showingTemplatePicker {
 		return m.handleTemplatePicker(msg)
@@ -264,6 +291,8 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleEditKeys(msg)
 	case ScreenCalendar:
 		return m.handleCalendarKeys(msg)
+	case ScreenTags:
+		return m.handleTagsKeys(msg)
 	}
 
 	return m, nil
@@ -350,9 +379,8 @@ func (m Model) handleListKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.showingTemplatePicker = true
 			m.templateCursor = 0
 		} else {
-			// No templates - go directly to create screen with VimTea editor
-			m.createEditor = newVimTeaEditor("")
-			m.createEditor.SetSize(m.width-8, m.height-12)
+			// No templates - go directly to create screen
+			m.initCreateEditor("")
 			m.currentScreen = ScreenCreate
 		}
 
@@ -361,8 +389,7 @@ func (m Model) handleListKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			memo := &memoList[m.listCursor]
 			m.editingMemo = memo
 			m.editOriginal = memo.Content
-			m.editEditor = newVimTeaEditor(memo.Content)
-			m.editEditor.SetSize(m.width-8, m.height-12)
+			m.initEditEditor(memo.Content)
 			m.previousScreen = ScreenList
 			m.currentScreen = ScreenEdit
 		}
@@ -415,6 +442,97 @@ func (m Model) handleListKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		} else {
 			m.currentScreen = ScreenCalendar
 		}
+
+	case "?":
+		m.showingHelp = true
+
+	case ":":
+		m.showingCommandPalette = true
+		m.commandPaletteQuery = ""
+		m.commandPaletteCursor = 0
+		m.filteredCommands = m.commands
+
+	case " ":
+		// Toggle selection on current memo
+		if len(memoList) > 0 && m.listCursor < len(memoList) {
+			memo := memoList[m.listCursor]
+			m.toggleSelection(memo.Name)
+			if len(m.selectedMemos) > 0 {
+				m.selectionMode = true
+			}
+		}
+
+	case "V":
+		// Enter selection mode
+		m.selectionMode = !m.selectionMode
+		if !m.selectionMode {
+			m.clearSelection()
+		}
+
+	case "g":
+		// Handle gg for jump to first
+		if m.pendingKey == "g" {
+			m.listCursor = 0
+			m.listOffset = 0
+			m.previewScroll = 0
+			m.pendingKey = ""
+		} else {
+			m.pendingKey = "g"
+			return m, nil
+		}
+
+	case "t":
+		// Handle gt for tags screen
+		if m.pendingKey == "g" {
+			m.currentScreen = ScreenTags
+			m.tagCursor = 0
+			m.tagScrollOffset = 0
+			m.pendingKey = ""
+		}
+
+	case "G":
+		// Jump to last memo
+		if len(memoList) > 0 {
+			m.listCursor = len(memoList) - 1
+			m.adjustListScroll(m.height - 9)
+			m.previewScroll = 0
+		}
+
+	case "y":
+		// Copy current memo content to clipboard
+		if len(memoList) > 0 && m.listCursor < len(memoList) {
+			memo := memoList[m.listCursor]
+			if m.clipboard != nil {
+				if err := m.clipboard.Copy(memo.Content); err == nil {
+					m.statusMessage = "Copied to clipboard"
+				} else {
+					m.statusMessage = "Failed to copy"
+				}
+			}
+		}
+
+	case "1", "2", "3", "4", "5", "6", "7", "8", "9":
+		// Handle number shortcuts for saved filters
+		if m.settings != nil && m.settings.Shortcuts != nil {
+			if filter, ok := m.settings.Shortcuts[msg.String()]; ok {
+				m.searchQuery = filter
+				m.applyAdvancedFilter()
+				m.statusMessage = "Filter: " + filter
+			}
+		}
+
+	case "Escape":
+		// Clear selection if in selection mode
+		if m.selectionMode {
+			m.clearSelection()
+		} else if m.searchQuery != "" {
+			m.clearSearch()
+		}
+	}
+
+	// Clear pending key if not a continuation
+	if msg.String() != "g" && m.pendingKey != "" {
+		m.pendingKey = ""
 	}
 
 	return m, nil
@@ -619,9 +737,8 @@ func (m Model) handleCalendarKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.showingTemplatePicker = true
 			m.templateCursor = 0
 		} else {
-			// No templates - go directly to create screen with VimTea editor
-			m.createEditor = newVimTeaEditor("")
-			m.createEditor.SetSize(m.width-8, m.height-12)
+			// No templates - go directly to create screen
+			m.initCreateEditor("")
 			m.currentScreen = ScreenCreate
 		}
 	}
@@ -774,8 +891,7 @@ func (m Model) handleDetailKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.selectedMemo != nil {
 			m.editingMemo = m.selectedMemo
 			m.editOriginal = m.selectedMemo.Content
-			m.editEditor = newVimTeaEditor(m.selectedMemo.Content)
-			m.editEditor.SetSize(m.width-8, m.height-12)
+			m.initEditEditor(m.selectedMemo.Content)
 			m.previousScreen = ScreenDetail
 			m.currentScreen = ScreenEdit
 		}
@@ -803,30 +919,107 @@ func (m Model) handleDetailKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.loading = true
 			return m, m.cycleVisibility(m.selectedMemo.Name, m.selectedMemo.Visibility)
 		}
+
+	case "?":
+		m.showingHelp = true
+
+	case ":":
+		m.showingCommandPalette = true
+		m.commandPaletteQuery = ""
+		m.commandPaletteCursor = 0
+		m.filteredCommands = m.commands
+
+	case "m":
+		// Toggle markdown rendering
+		m.detailRenderMarkdown = !m.detailRenderMarkdown
+
+	case "y":
+		// Copy memo content to clipboard
+		if m.selectedMemo != nil && m.clipboard != nil {
+			if err := m.clipboard.Copy(m.selectedMemo.Content); err == nil {
+				m.statusMessage = "Copied to clipboard"
+			} else {
+				m.statusMessage = "Failed to copy"
+			}
+		}
 	}
 
 	return m, nil
 }
 
 func (m Model) handleCreateKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if m.createEditor == nil {
+	if m.editorMode == "vim" {
+		if m.createEditor == nil {
+			return m, nil
+		}
+		// Forward message to VimTea editor
+		newEditor, cmd := m.createEditor.Update(msg)
+		m.createEditor = newEditor.(vimtea.Editor)
+		return m, cmd
+	}
+
+	// Simple editor mode
+	switch msg.String() {
+	case "ctrl+s":
+		// Save
+		content := m.simpleCreateEditor.Value()
+		if content != "" {
+			m.currentScreen = ScreenList
+			return m, m.createMemo(content)
+		}
+		return m, nil
+	case "esc":
+		// Cancel (check for unsaved changes)
+		content := m.simpleCreateEditor.Value()
+		if content != "" {
+			m.showingUnsavedDialog = true
+			return m, nil
+		}
+		m.currentScreen = ScreenList
 		return m, nil
 	}
 
-	// Forward message to VimTea editor
-	newEditor, cmd := m.createEditor.Update(msg)
-	m.createEditor = newEditor.(vimtea.Editor)
+	// Forward to textarea
+	var cmd tea.Cmd
+	m.simpleCreateEditor, cmd = m.simpleCreateEditor.Update(msg)
 	return m, cmd
 }
 
 func (m Model) handleEditKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if m.editEditor == nil {
+	if m.editorMode == "vim" {
+		if m.editEditor == nil {
+			return m, nil
+		}
+		// Forward message to VimTea editor
+		newEditor, cmd := m.editEditor.Update(msg)
+		m.editEditor = newEditor.(vimtea.Editor)
+		return m, cmd
+	}
+
+	// Simple editor mode
+	switch msg.String() {
+	case "ctrl+s":
+		// Save
+		content := m.simpleEditEditor.Value()
+		if content != "" && m.editingMemo != nil {
+			m.currentScreen = m.previousScreen
+			return m, m.updateMemo(m.editingMemo.Name, content)
+		}
+		return m, nil
+	case "esc":
+		// Cancel (check for unsaved changes)
+		content := m.simpleEditEditor.Value()
+		if content != m.editOriginal {
+			m.showingUnsavedDialog = true
+			return m, nil
+		}
+		m.currentScreen = m.previousScreen
 		return m, nil
 	}
 
-	// Forward message to VimTea editor
-	newEditor, cmd := m.editEditor.Update(msg)
-	m.editEditor = newEditor.(vimtea.Editor)
+	// Forward to textarea
+	var cmd tea.Cmd
+	m.simpleEditEditor, cmd = m.simpleEditEditor.Update(msg)
 	return m, cmd
 }
 
@@ -951,8 +1144,7 @@ func (m Model) handleTemplatePicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc":
 		// Skip template selection, start with blank note
 		m.showingTemplatePicker = false
-		m.createEditor = newVimTeaEditor("")
-		m.createEditor.SetSize(m.width-8, m.height-12)
+		m.initCreateEditor("")
 		m.currentScreen = ScreenCreate
 
 	case "up", "k":
@@ -974,9 +1166,110 @@ func (m Model) handleTemplatePicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			content = m.templates[m.templateCursor].Content
 		}
 
-		m.createEditor = newVimTeaEditor(content)
-		m.createEditor.SetSize(m.width-8, m.height-12)
+		m.initCreateEditor(content)
 		m.currentScreen = ScreenCreate
+	}
+
+	return m, nil
+}
+
+func (m Model) handleHelpKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc", "q", "?":
+		m.showingHelp = false
+	}
+	return m, nil
+}
+
+func (m Model) handleCommandPalette(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	key := msg.String()
+
+	switch key {
+	case "esc":
+		m.showingCommandPalette = false
+		m.commandPaletteQuery = ""
+		m.commandPaletteCursor = 0
+
+	case "enter":
+		// Execute selected command
+		if len(m.filteredCommands) > 0 && m.commandPaletteCursor < len(m.filteredCommands) {
+			cmd := m.filteredCommands[m.commandPaletteCursor]
+			m.showingCommandPalette = false
+			m.commandPaletteQuery = ""
+			m.commandPaletteCursor = 0
+			return m, cmd.Action(&m)
+		}
+		m.showingCommandPalette = false
+
+	case "up", "ctrl+p":
+		if m.commandPaletteCursor > 0 {
+			m.commandPaletteCursor--
+		}
+
+	case "down", "ctrl+n":
+		if m.commandPaletteCursor < len(m.filteredCommands)-1 {
+			m.commandPaletteCursor++
+		}
+
+	case "backspace":
+		if len(m.commandPaletteQuery) > 0 {
+			m.commandPaletteQuery = m.commandPaletteQuery[:len(m.commandPaletteQuery)-1]
+			m.filteredCommands = FilterCommands(m.commands, m.commandPaletteQuery)
+			m.commandPaletteCursor = 0
+		}
+
+	default:
+		// Handle regular character input
+		if len(key) == 1 && key[0] >= 32 && key[0] <= 126 {
+			m.commandPaletteQuery += key
+			m.filteredCommands = FilterCommands(m.commands, m.commandPaletteQuery)
+			m.commandPaletteCursor = 0
+		}
+	}
+
+	return m, nil
+}
+
+func (m Model) handleTagsKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "q", "esc":
+		m.currentScreen = ScreenList
+
+	case "up", "k":
+		if m.tagCursor > 0 {
+			m.tagCursor--
+			if m.tagCursor < m.tagScrollOffset {
+				m.tagScrollOffset = m.tagCursor
+			}
+		}
+
+	case "down", "j":
+		if m.tagCursor < len(m.allTags)-1 {
+			m.tagCursor++
+			// Adjust scroll
+			visibleHeight := m.height - 10
+			if m.tagCursor >= m.tagScrollOffset+visibleHeight {
+				m.tagScrollOffset = m.tagCursor - visibleHeight + 1
+			}
+		}
+
+	case "enter":
+		// Filter by selected tag
+		if len(m.allTags) > 0 && m.tagCursor < len(m.allTags) {
+			tag := m.allTags[m.tagCursor]
+			m.searchQuery = "#" + tag.Name
+			m.applyAdvancedFilter()
+			m.currentScreen = ScreenList
+		}
+
+	case "?":
+		m.showingHelp = true
+
+	case ":":
+		m.showingCommandPalette = true
+		m.commandPaletteQuery = ""
+		m.commandPaletteCursor = 0
+		m.filteredCommands = m.commands
 	}
 
 	return m, nil

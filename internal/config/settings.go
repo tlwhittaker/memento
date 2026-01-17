@@ -17,8 +17,30 @@ type Settings struct {
 	SortOrder   string            `yaml:"sort_order"`
 	Editor      EditorConfig      `yaml:"editor"`
 	Keybindings KeybindingsConfig `yaml:"keybindings"`
+	Shortcuts   map[string]string `yaml:"shortcuts"`
+	Layout      LayoutConfig      `yaml:"layout"`
+	Startup     StartupConfig     `yaml:"startup"`
+	Cache       CacheConfig       `yaml:"cache"`
 	Debug       bool              `yaml:"debug"`
 	LogFile     string            `yaml:"log_file"`
+}
+
+type LayoutConfig struct {
+	SplitRatio        float64 `yaml:"split_ratio"`
+	SplitMinWidth     int     `yaml:"split_min_width"`
+	StatusBarPosition string  `yaml:"status_bar_position"`
+}
+
+type StartupConfig struct {
+	Screen string `yaml:"screen"`
+	Filter string `yaml:"filter"`
+	SortBy string `yaml:"sort_by"`
+}
+
+type CacheConfig struct {
+	Enabled bool   `yaml:"enabled"`
+	TTL     int    `yaml:"ttl"`
+	Path    string `yaml:"path"`
 }
 
 type ColorConfig struct {
@@ -68,6 +90,25 @@ func DefaultSettings() *Settings {
 			Delete:  "d",
 			Search:  "/",
 			Refresh: "r",
+		},
+		Shortcuts: map[string]string{
+			"1": "pinned",
+			"2": "archived",
+		},
+		Layout: LayoutConfig{
+			SplitRatio:        0.4,
+			SplitMinWidth:     120,
+			StatusBarPosition: "bottom",
+		},
+		Startup: StartupConfig{
+			Screen: "list",
+			Filter: "",
+			SortBy: "display_time",
+		},
+		Cache: CacheConfig{
+			Enabled: true,
+			TTL:     300,
+			Path:    "",
 		},
 		Colors: ColorConfig{
 			Primary:    "#7D56F4",
@@ -199,6 +240,7 @@ timezone: Local
 sort_by: display_time
 sort_order: desc
 
+# Editor mode: "vim" for vim-style editing, "simple" for basic text editing
 editor:
   mode: vim
   tab_width: 4

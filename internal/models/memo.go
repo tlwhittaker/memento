@@ -1,6 +1,7 @@
 package models
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
@@ -18,6 +19,64 @@ type Memo struct {
 	Visibility  string
 	Pinned      bool
 	Tags        []string
+	Resources   []Resource
+}
+
+// Resource represents an attachment on a memo.
+type Resource struct {
+	Name         string
+	UID          string
+	Filename     string
+	Type         string
+	Size         int64
+	CreateTime   time.Time
+	ExternalLink string
+}
+
+// HasResources returns true if the memo has any resources attached.
+func (m *Memo) HasResources() bool {
+	return len(m.Resources) > 0
+}
+
+// ResourceCount returns the number of resources attached.
+func (m *Memo) ResourceCount() int {
+	return len(m.Resources)
+}
+
+// FormatFileSize returns a human-readable file size string.
+func FormatFileSize(size int64) string {
+	const (
+		KB = 1024
+		MB = KB * 1024
+		GB = MB * 1024
+	)
+
+	switch {
+	case size >= GB:
+		return fmt.Sprintf("%.1f GB", float64(size)/GB)
+	case size >= MB:
+		return fmt.Sprintf("%.1f MB", float64(size)/MB)
+	case size >= KB:
+		return fmt.Sprintf("%.1f KB", float64(size)/KB)
+	default:
+		return fmt.Sprintf("%d B", size)
+	}
+}
+
+// ResourceIcon returns an icon based on the resource type.
+func (r *Resource) Icon() string {
+	switch {
+	case strings.HasPrefix(r.Type, "image/"):
+		return "[img]"
+	case strings.HasPrefix(r.Type, "video/"):
+		return "[vid]"
+	case strings.HasPrefix(r.Type, "audio/"):
+		return "[aud]"
+	case r.Type == "application/pdf":
+		return "[pdf]"
+	default:
+		return "[file]"
+	}
 }
 
 func (m *Memo) IsArchived() bool {
@@ -95,7 +154,82 @@ func (m *Memo) ShortDateIn(tz *time.Location) string {
 	return localTime.Format("Jan 02, 2006")
 }
 
+// RelativeDate returns a human-readable relative date string.
+func (m *Memo) RelativeDate() string {
+	return m.RelativeDateIn(time.Local)
+}
+
+// RelativeDateIn returns a human-readable relative date string in the given timezone.
+func (m *Memo) RelativeDateIn(tz *time.Location) string {
+	now := time.Now().In(tz)
+	t := m.DisplayTime.In(tz)
+	diff := now.Sub(t)
+
+	// Future dates
+	if diff < 0 {
+		return t.Format("Jan 02, 2006")
+	}
+
+	// Less than a minute
+	if diff < time.Minute {
+		return "just now"
+	}
+
+	// Less than an hour
+	if diff < time.Hour {
+		mins := int(diff.Minutes())
+		if mins == 1 {
+			return "1 min ago"
+		}
+		return fmt.Sprintf("%d mins ago", mins)
+	}
+
+	// Less than a day
+	if diff < 24*time.Hour {
+		hours := int(diff.Hours())
+		if hours == 1 {
+			return "1 hour ago"
+		}
+		return fmt.Sprintf("%d hours ago", hours)
+	}
+
+	// Yesterday
+	yesterday := now.AddDate(0, 0, -1)
+	if t.Year() == yesterday.Year() && t.YearDay() == yesterday.YearDay() {
+		return "yesterday"
+	}
+
+	// Less than a week
+	if diff < 7*24*time.Hour {
+		days := int(diff.Hours() / 24)
+		if days == 1 {
+			return "1 day ago"
+		}
+		return fmt.Sprintf("%d days ago", days)
+	}
+
+	// More than a week - show date
+	if t.Year() == now.Year() {
+		return t.Format("Jan 02")
+	}
+	return t.Format("Jan 02, 2006")
+}
+
 func FromAPI(m api.Memo) Memo {
+	// Convert resources
+	resources := make([]Resource, len(m.Resources))
+	for i, r := range m.Resources {
+		resources[i] = Resource{
+			Name:         r.Name,
+			UID:          r.UID,
+			Filename:     r.Filename,
+			Type:         r.Type,
+			Size:         r.Size,
+			CreateTime:   r.CreateTime,
+			ExternalLink: r.ExternalLink,
+		}
+	}
+
 	return Memo{
 		Name:        m.Name,
 		UID:         m.UID,
@@ -107,6 +241,7 @@ func FromAPI(m api.Memo) Memo {
 		Visibility:  m.Visibility,
 		Pinned:      m.Pinned,
 		Tags:        m.Tags,
+		Resources:   resources,
 	}
 }
 
